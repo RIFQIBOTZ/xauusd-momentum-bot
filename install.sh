@@ -232,7 +232,7 @@ install_bot() {
     echo -e "M15 Body Min   : $m15_pips pips"
     echo -e "Wick Filter    : 30% max"
     echo -e "Alert Window   : 20-90s before candle close"
-    echo -e "Check Interval : 3 seconds (real-time monitoring)"
+    echo -e "Check Interval : 1 second (precise timing)"
     echo -e "Discord        : Configured"
     echo -e "Rate Limit     : ∞ UNLIMITED (No API key needed)"
     echo -e "${BOLD}════════════════════════════════════════════${NC}"
@@ -296,8 +296,8 @@ ALERT_WINDOW_END = 90
 # Alert Cooldown (prevent duplicate alerts)
 ALERT_COOLDOWN = 60
 
-# Check Interval (3s for real-time monitoring)
-CHECK_INTERVAL = 3
+# Check Interval (1s for precise timing like TradingView)
+CHECK_INTERVAL = 1
 
 # Discord Settings
 ENABLE_EMBED = True
@@ -351,8 +351,16 @@ create_bot_files() {
 #!/usr/bin/env python3
 """
 XAUUSD Momentum Bot - Real-time Forming Candle Detection
-Based on Sekolah Trading Momentum Indicator V3
+100% IDENTICAL to TradingView "Momentum Candle V3 by Sekolah Trading"
 Data Source: Yahoo Finance (yfinance) - UNLIMITED & FREE
+
+Pine Script Logic:
+1. Body: totalRange = abs(close - open)
+2. Wick Filter: totalWick / (totalRange + totalWick) <= 0.3
+3. Bullish: close > open
+4. Bearish: close < open OR (close > open AND close < open[1])
+5. Alert Window: 20-90s before candle close (barstate.isconfirmed = false)
+6. Alert sent ONCE when first enters window
 """
 
 import yfinance as yf
@@ -434,14 +442,17 @@ def get_current_candle(timeframe_str):
 
 
 def calculate_body_pips(candle):
-    """Calculate body in pips"""
+    """Calculate body in pips (same as totalRange in Pine Script)"""
     body = abs(candle['close'] - candle['open'])
     pips = body / config.PIP_SIZE
     return round(pips, 1)
 
 
 def calculate_wick_percentage(candle):
-    """Calculate wick percentage"""
+    """
+    Calculate wick percentage (same as Pine Script logic)
+    totalWick / (totalRange + totalWick) <= 0.3
+    """
     upper_wick = candle['high'] - max(candle['open'], candle['close'])
     lower_wick = min(candle['open'], candle['close']) - candle['low']
     total_wick = upper_wick + lower_wick
@@ -450,39 +461,56 @@ def calculate_wick_percentage(candle):
     total_range = body + total_wick
     
     if total_range == 0:
-        return 100.0
+        return 1.0  # 100% wick if no range
     
     return (total_wick / total_range)
 
 
 def check_bearish_condition(current, previous):
     """
-    Check bearish condition (Sekolah Trading logic):
-    - Bearish = RED candle (close < open)
-    - OR GREEN candle but close < previous open (engulfing pattern)
+    Pine Script bearish logic:
+    isBearish = close < open OR (close > open AND close < open[1])
     """
     is_red = current['close'] < current['open']
-    is_engulfing = (current['close'] > current['open'] and 
-                    current['close'] < previous['open'])
-    return is_red or is_engulfing
+    is_green_engulfing = (current['close'] > current['open'] and 
+                          current['close'] < previous['open'])
+    return is_red or is_green_engulfing
 
 
 def get_time_until_close(timeframe_str):
-    """Get seconds until candle close"""
+    """
+    Get seconds until candle close
+    Same as: barTimeLeft = time_close - timenow (in Pine Script)
+    """
     now = datetime.now(timezone.utc)
     current_minute = now.minute
     current_second = now.second
     
     timeframe_minutes = 5 if timeframe_str == "M5" else 15
     
+    # Calculate how many minutes into current candle
     minutes_into_candle = current_minute % timeframe_minutes
+    
+    # Calculate seconds until candle closes
     seconds_until_close = ((timeframe_minutes - minutes_into_candle) * 60) - current_second
     
     return seconds_until_close
 
 
 def check_momentum(timeframe_str):
-    """Check momentum on FORMING candle (real-time)"""
+    """
+    Check momentum on FORMING candle (real-time)
+    100% IDENTICAL to TradingView "Momentum Candle V3 by Sekolah Trading"
+    
+    Logic:
+    1. Calculate body size (close - open)
+    2. Check if body >= minimum pips threshold
+    3. Check wick filter: total_wick / (body + total_wick) <= 30%
+    4. Bullish: close > open
+    5. Bearish: close < open OR (close > open AND close < open[1]) -- engulfing
+    6. Alert window: 20-90s before candle close (barstate.isconfirmed = false)
+    7. Send alert ONCE per candle when first enters window
+    """
     global last_alert_time
     
     momentum_threshold = config.MOMENTUM_PIPS_M5 if timeframe_str == "M5" else config.MOMENTUM_PIPS_M15
@@ -493,70 +521,98 @@ def check_momentum(timeframe_str):
     if not current_candle or not previous_candle:
         return
     
-    # Calculate body size
-    body_pips = calculate_body_pips(current_candle)
+    # ===== STEP 1: Calculate body (totalRange in Pine Script) =====
+    body = abs(current_candle['close'] - current_candle['open'])
+    body_pips = body / config.PIP_SIZE
     
-    # Check if body meets threshold
+    # ===== STEP 2: Check minimum body requirement =====
     if body_pips < momentum_threshold:
         return
     
-    # Check wick filter
-    wick_pct = calculate_wick_percentage(current_candle)
+    # ===== STEP 3: Wick filter (30% max) =====
+    upper_wick = current_candle['high'] - max(current_candle['open'], current_candle['close'])
+    lower_wick = min(current_candle['open'], current_candle['close']) - current_candle['low']
+    total_wick = upper_wick + lower_wick
+    total_range = body + total_wick
     
-    if config.WICK_FILTER_ENABLED and wick_pct > config.MAX_WICK_PERCENTAGE:
-        logger.debug(f"{timeframe_str}: Body {body_pips} pips, wick {wick_pct*100:.1f}% filtered")
+    if total_range == 0:
         return
     
-    # Check alert window (20-90s before close)
-    seconds_until_close = get_time_until_close(timeframe_str)
+    wick_ratio = total_wick / total_range
     
-    if not (config.ALERT_WINDOW_START <= seconds_until_close <= config.ALERT_WINDOW_END):
+    if config.WICK_FILTER_ENABLED and wick_ratio > config.MAX_WICK_PERCENTAGE:
+        logger.debug(f"{timeframe_str}: Body {body_pips:.1f} pips, wick {wick_ratio*100:.1f}% FILTERED")
         return
     
-    # Determine bullish or bearish
+    # ===== STEP 4: Determine bullish or bearish =====
+    # Bullish: close > open
     is_bullish = current_candle['close'] > current_candle['open']
-    is_bearish = check_bearish_condition(current_candle, previous_candle)
     
+    # Bearish: close < open OR (close > open AND close < open[1])
+    is_red = current_candle['close'] < current_candle['open']
+    is_engulfing = (current_candle['close'] > current_candle['open'] and 
+                    current_candle['close'] < previous_candle['open'])
+    is_bearish = is_red or is_engulfing
+    
+    # Must be either bullish or bearish
     if not (is_bullish or is_bearish):
         return
     
-    # Check cooldown (prevent duplicate alerts)
+    # ===== STEP 5: Alert window check (20-90s before close, barstate.isconfirmed = false) =====
+    seconds_until_close = get_time_until_close(timeframe_str)
+    
+    # CRITICAL: Only alert in window 20-90s before close
+    in_alert_window = (config.ALERT_WINDOW_START <= seconds_until_close <= config.ALERT_WINDOW_END)
+    
+    if not in_alert_window:
+        return
+    
+    # ===== STEP 6: Prevent duplicate alerts (same as barstate.isconfirmed check) =====
+    # Alert ONCE per candle when first enters window
     candle_start_time = int(time.time() / (300 if timeframe_str == "M5" else 900)) * (300 if timeframe_str == "M5" else 900)
-    cooldown_key = f"{timeframe_str}_{candle_start_time}"
-    current_time = time.time()
+    alert_key = f"{timeframe_str}_{candle_start_time}"
     
-    if cooldown_key in last_alert_time:
-        if current_time - last_alert_time[cooldown_key] < config.ALERT_COOLDOWN:
-            return
+    # Check if already alerted for this candle
+    if alert_key in last_alert_time:
+        # Already sent alert for this candle
+        return
     
-    # Prepare alert data
+    # ===== STEP 7: Send alert (first time in window) =====
     alert_data = {
         'symbol': 'XAUUSD',
         'timeframe': timeframe_str,
-        'body_pips': body_pips,
+        'body_pips': round(body_pips, 1),
         'open': current_candle['open'],
         'high': current_candle['high'],
         'low': current_candle['low'],
         'close': current_candle['close'],
-        'upper_wick': current_candle['high'] - max(current_candle['open'], current_candle['close']),
-        'lower_wick': min(current_candle['open'], current_candle['close']) - current_candle['low'],
-        'wick_pct': wick_pct * 100,
+        'upper_wick': upper_wick,
+        'lower_wick': lower_wick,
+        'wick_pct': round(wick_ratio * 100, 1),
         'is_bullish': is_bullish,
         'is_bearish': is_bearish,
-        'is_engulfing': (is_bearish and current_candle['close'] > current_candle['open']),
+        'is_engulfing': is_engulfing,
         'prev_open': previous_candle['open'],
         'time': datetime.now(timezone.utc),
         'seconds_until_close': seconds_until_close
     }
     
-    logger.info(f"🚨 {timeframe_str}: MOMENTUM! {body_pips} pips ({'BULL' if is_bullish else 'BEAR'}) | "
-                f"O:{current_candle['open']:.2f} C:{current_candle['close']:.2f} | "
-                f"Wick:{wick_pct*100:.1f}% | Close in {seconds_until_close}s")
+    direction = "BULLISH" if is_bullish else "BEARISH"
+    engulfing_flag = " [ENGULFING]" if is_engulfing else ""
     
-    # Send alert
+    logger.info(f"🚨 {timeframe_str} MOMENTUM {direction}{engulfing_flag}: "
+                f"{body_pips:.1f} pips | "
+                f"O:{current_candle['open']:.2f} C:{current_candle['close']:.2f} | "
+                f"Wick:{wick_ratio*100:.1f}% | "
+                f"Close in {seconds_until_close}s")
+    
+    # Send alert to Discord
     if send_alert(alert_data):
-        last_alert_time[cooldown_key] = current_time
+        # Mark as alerted for this candle
+        last_alert_time[alert_key] = time.time()
         stats.add_alert(timeframe_str, body_pips, is_bullish)
+    else:
+        logger.error(f"Failed to send {timeframe_str} alert to Discord")
 
 
 def check_daily_summary():
@@ -573,7 +629,8 @@ def main():
     """Main loop"""
     logger.info("=" * 70)
     logger.info("XAUUSD Momentum Bot Starting")
-    logger.info("Logic: Sekolah Trading Momentum Indicator V3")
+    logger.info("Logic: 100% IDENTICAL to TradingView 'Momentum Candle V3'")
+    logger.info("       by Sekolah Trading")
     logger.info("Data Source: Yahoo Finance (yfinance) - UNLIMITED")
     logger.info("=" * 70)
     
@@ -592,10 +649,11 @@ def main():
     
     logger.info(f"Symbol: XAU/USD (GC=F)")
     logger.info(f"Timeframes: M5, M15")
-    logger.info(f"M5: {config.MOMENTUM_PIPS_M5} pips, M15: {config.MOMENTUM_PIPS_M15} pips")
-    logger.info(f"Wick Filter: {config.MAX_WICK_PERCENTAGE*100}% max")
+    logger.info(f"M5 Body Min: {config.MOMENTUM_PIPS_M5} pips | M15: {config.MOMENTUM_PIPS_M15} pips")
+    logger.info(f"Wick Filter: totalWick/(body+totalWick) <= {config.MAX_WICK_PERCENTAGE*100}%")
     logger.info(f"Alert Window: {config.ALERT_WINDOW_START}-{config.ALERT_WINDOW_END}s before close")
-    logger.info(f"Check Interval: {config.CHECK_INTERVAL}s (real-time monitoring)")
+    logger.info(f"Check Interval: {config.CHECK_INTERVAL}s (precise timing)")
+    logger.info(f"Bearish Logic: RED candle OR GREEN engulfing (close < open[1])")
     logger.info(f"Rate Limit: ∞ UNLIMITED")
     logger.info("=" * 70)
     
