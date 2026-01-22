@@ -1,9 +1,9 @@
 #!/bin/bash
 
 #############################################
-# XAUUSD Momentum Bot - Linux Installer
-# Version: 1.1.0 (Real-time Forming Candles)
-# Data Source: Twelve Data API (/quote)
+# XAUUSD Momentum Bot - YFinance Version
+# Version: 2.0.0 (Unlimited - No API Key)
+# Data Source: Yahoo Finance (FREE)
 # Logic: Sekolah Trading Momentum Indicator
 #############################################
 
@@ -36,10 +36,11 @@ print_banner() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
-    echo "║        🤖 XAUUSD MOMENTUM BOT - CONTROL PANEL 🤖         ║"
-    echo "║                   Version 1.1.0                           ║"
+    echo "║        🤖 XAUUSD MOMENTUM BOT - YFINANCE VERSION 🤖      ║"
+    echo "║                   Version 2.0.0                           ║"
     echo "║              Based on Sekolah Trading Logic               ║"
     echo "║              Real-time Forming Candle Detection           ║"
+    echo "║                  ✅ UNLIMITED - NO API KEY                ║"
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -81,10 +82,10 @@ show_main_menu() {
     
     if [ -f "$INSTALL_DIR/.env" ]; then
         echo -e "│ Discord Webhook: ${GREEN}✓ Configured${NC}                                 "
-        echo -e "│ Twelve Data API: ${GREEN}✓ Configured${NC}                                 "
+        echo -e "│ Data Source    : ${GREEN}✓ Yahoo Finance (FREE)${NC}                      "
     else
         echo -e "│ Discord Webhook: ${RED}✗ Not configured${NC}                           "
-        echo -e "│ Twelve Data API: ${RED}✗ Not configured${NC}                           "
+        echo -e "│ Data Source    : ${YELLOW}⚠ Pending installation${NC}                     "
     fi
     
     echo -e "${BOLD}└───────────────────────────────────────────────────────────┘${NC}"
@@ -94,7 +95,7 @@ show_main_menu() {
         echo -e "${BOLD}┌───────────────────────────────────────────────────────────┐${NC}"
         echo -e "${BOLD}│ CURRENT SETTINGS                                          │${NC}"
         echo -e "${BOLD}├───────────────────────────────────────────────────────────┤${NC}"
-        echo -e "│ Symbol         : XAUUSD                                   │"
+        echo -e "│ Symbol         : XAUUSD (GC=F)                            │"
         echo -e "│ Timeframes     : M5, M15                                  │"
         
         m5_pips=$(grep "MOMENTUM_PIPS_M5" "$INSTALL_DIR/config.py" | grep -o '[0-9]*' | head -1)
@@ -103,7 +104,8 @@ show_main_menu() {
         echo -e "│ M5 Body Min    : ${m5_pips:-40} pips                                   │"
         echo -e "│ M15 Body Min   : ${m15_pips:-50} pips                                   │"
         echo -e "│ Wick Filter    : 30% max (Sekolah Trading)                │"
-        echo -e "│ Data Source    : Twelve Data /quote (Real-time)           │"
+        echo -e "│ Data Source    : Yahoo Finance (Real-time)                │"
+        echo -e "│ Rate Limit     : ∞ UNLIMITED                              │"
         echo -e "${BOLD}└───────────────────────────────────────────────────────────┘${NC}"
         echo ""
     fi
@@ -144,21 +146,25 @@ show_progress() {
 }
 
 install_dependencies() {
-    echo -e "\n${BLUE}[1/4]${NC} Updating system..."
+    echo -e "\n${BLUE}[1/5]${NC} Updating system..."
     apt update > /dev/null 2>&1
-    show_progress 1 4 "System updated"
+    show_progress 1 5 "System updated"
     
-    echo -e "\n${BLUE}[2/4]${NC} Installing Python..."
+    echo -e "\n${BLUE}[2/5]${NC} Installing Python..."
     apt install -y python3 python3-pip > /dev/null 2>&1
-    show_progress 2 4 "Python installed"
+    show_progress 2 5 "Python installed"
     
-    echo -e "\n${BLUE}[3/4]${NC} Upgrading pip..."
+    echo -e "\n${BLUE}[3/5]${NC} Upgrading pip..."
     python3 -m pip install --upgrade pip > /dev/null 2>&1
-    show_progress 3 4 "Pip upgraded"
+    show_progress 3 5 "Pip upgraded"
     
-    echo -e "\n${BLUE}[4/4]${NC} Installing Python packages..."
+    echo -e "\n${BLUE}[4/5]${NC} Installing Python packages..."
     pip3 install --break-system-packages requests python-dotenv pytz > /dev/null 2>&1
-    show_progress 4 4 "Complete!"
+    show_progress 4 5 "Base packages installed"
+    
+    echo -e "\n${BLUE}[5/5]${NC} Installing YFinance..."
+    pip3 install --break-system-packages yfinance > /dev/null 2>&1
+    show_progress 5 5 "Complete!"
     
     echo -e "\n"
 }
@@ -166,7 +172,7 @@ install_dependencies() {
 install_bot() {
     print_banner
     echo -e "${BOLD}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║ 🚀 INSTALLING XAUUSD MOMENTUM BOT                        ║${NC}"
+    echo -e "${BOLD}║ 🚀 INSTALLING XAUUSD MOMENTUM BOT - YFINANCE            ║${NC}"
     echo -e "${BOLD}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
@@ -194,7 +200,7 @@ install_bot() {
     echo ""
     
     # Discord webhook
-    echo -e "${CYAN}[1/3]${NC} Discord Webhook URL"
+    echo -e "${CYAN}[1/2]${NC} Discord Webhook URL"
     echo -n "Enter webhook URL: "
     read -r discord_webhook
     
@@ -204,28 +210,9 @@ install_bot() {
         read -r discord_webhook
     done
     
-    # Twelve Data API
-    echo ""
-    echo -e "${CYAN}[2/3]${NC} Twelve Data API Configuration"
-    echo ""
-    echo -e "${YELLOW}Get FREE Twelve Data API key:${NC}"
-    echo "1. Go to: https://twelvedata.com/register"
-    echo "2. Register FREE account (Basic plan)"
-    echo "3. Get your API key from dashboard"
-    echo "4. Free tier: 8 calls/min, 800/day"
-    echo ""
-    echo -n "Twelve Data API Key: "
-    read -r twelvedata_key
-    
-    while [ -z "$twelvedata_key" ]; do
-        echo -e "${RED}✗ API key cannot be empty!${NC}"
-        echo -n "Twelve Data API Key: "
-        read -r twelvedata_key
-    done
-    
     # Momentum settings
     echo ""
-    echo -e "${CYAN}[3/3]${NC} Momentum Settings"
+    echo -e "${CYAN}[2/2]${NC} Momentum Settings"
     echo -n "M5 Body minimum (pips) [40]: "
     read -r m5_pips
     m5_pips=${m5_pips:-40}
@@ -238,15 +225,16 @@ install_bot() {
     echo ""
     echo -e "${CYAN}Configuration Summary${NC}"
     echo -e "${BOLD}════════════════════════════════════════════${NC}"
-    echo -e "Data Source    : Twelve Data /quote (Real-time)"
-    echo -e "Symbol         : XAU/USD"
+    echo -e "Data Source    : Yahoo Finance (FREE & UNLIMITED)"
+    echo -e "Symbol         : XAU/USD (GC=F)"
     echo -e "Timeframes     : M5, M15"
     echo -e "M5 Body Min    : $m5_pips pips"
     echo -e "M15 Body Min   : $m15_pips pips"
     echo -e "Wick Filter    : 30% max"
     echo -e "Alert Window   : 20-90s before candle close"
-    echo -e "Check Interval : 5 seconds (real-time monitoring)"
+    echo -e "Check Interval : 3 seconds (real-time monitoring)"
     echo -e "Discord        : Configured"
+    echo -e "Rate Limit     : ∞ UNLIMITED (No API key needed)"
     echo -e "${BOLD}════════════════════════════════════════════${NC}"
     echo ""
     echo -n "Proceed with installation? (y/N): "
@@ -273,9 +261,6 @@ install_bot() {
     cat > "$INSTALL_DIR/.env" << EOF
 # Discord Configuration
 DISCORD_WEBHOOK_URL=$discord_webhook
-
-# Twelve Data API Configuration
-TWELVEDATA_API_KEY=$twelvedata_key
 EOF
     
     # Create config.py
@@ -283,14 +268,14 @@ EOF
 """
 Configuration for XAUUSD Momentum Bot
 Based on Sekolah Trading Logic
-Data Source: Twelve Data API (/quote endpoint)
+Data Source: Yahoo Finance (yfinance)
 """
 
 # Symbol Settings
-SYMBOL = "XAU/USD"
+SYMBOL = "GC=F"  # Gold Futures (XAUUSD equivalent on Yahoo Finance)
 TIMEFRAMES = {
-    "M5": "5min",
-    "M15": "15min"
+    "M5": "5m",
+    "M15": "15m"
 }
 
 # Momentum Settings (Sekolah Trading defaults)
@@ -311,8 +296,8 @@ ALERT_WINDOW_END = 90
 # Alert Cooldown (prevent duplicate alerts)
 ALERT_COOLDOWN = 60
 
-# Check Interval (5s for real-time monitoring)
-CHECK_INTERVAL = 5
+# Check Interval (3s for real-time monitoring)
+CHECK_INTERVAL = 3
 
 # Discord Settings
 ENABLE_EMBED = True
@@ -325,9 +310,6 @@ LOG_LEVEL = "INFO"
 LOG_TO_FILE = True
 LOG_FILE = "logs/bot.log"
 ERROR_LOG_FILE = "logs/error.log"
-
-# Twelve Data API
-TWELVEDATA_API_URL = "https://api.twelvedata.com"
 EOF
     
     sed -i "s/M5_PLACEHOLDER/$m5_pips/" "$INSTALL_DIR/config.py"
@@ -355,6 +337,7 @@ EOF
     echo -e "${GREEN}✓ Bot is now running!${NC}"
     echo -e "${YELLOW}⚠️  Bot monitors forming candles in real-time${NC}"
     echo -e "${YELLOW}⚠️  Alerts sent 20-90s before candle close${NC}"
+    echo -e "${GREEN}⚠️  Using Yahoo Finance - NO RATE LIMITS!${NC}"
     echo ""
     echo -n "Press Enter to continue..."
     read -r
@@ -363,22 +346,23 @@ EOF
 create_bot_files() {
     echo -e "${BLUE}Creating bot files...${NC}"
     
-    # Main bot with REAL-TIME FORMING CANDLE logic
+    # Main bot with YFinance
     cat > "$INSTALL_DIR/bot.py" << 'BOTEOF'
 #!/usr/bin/env python3
 """
 XAUUSD Momentum Bot - Real-time Forming Candle Detection
 Based on Sekolah Trading Momentum Indicator V3
-Data Source: Twelve Data API (/quote endpoint)
+Data Source: Yahoo Finance (yfinance) - UNLIMITED & FREE
 """
 
-import requests
+import yfinance as yf
 import time
 import logging
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 import os
 import sys
+import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'utils'))
 
@@ -408,88 +392,45 @@ error_logger.addHandler(error_handler)
 
 last_alert_time = {}
 stats = StatsTracker()
-last_candle_time = {}
-
-TWELVEDATA_KEY = os.getenv("TWELVEDATA_API_KEY")
-TWELVEDATA_URL = config.TWELVEDATA_API_URL
 
 
-def get_current_quote(timeframe_str):
-    """Get current quote (forming candle) from Twelve Data"""
+def get_current_candle(timeframe_str):
+    """Get current forming candle from Yahoo Finance"""
     try:
         interval = config.TIMEFRAMES[timeframe_str]
         
-        url = f"{TWELVEDATA_URL}/quote"
-        params = {
-            "symbol": config.SYMBOL,
-            "interval": interval,
-            "apikey": TWELVEDATA_KEY
-        }
+        # Fetch last 2 candles (1 completed + 1 forming)
+        ticker = yf.Ticker(config.SYMBOL)
+        data = ticker.history(period="1d", interval=interval)
         
-        response = requests.get(url, params=params, timeout=10)
+        if data.empty or len(data) < 2:
+            return None, None
         
-        if response.status_code != 200:
-            logger.error(f"API error: {response.status_code}")
-            return None
-        
-        data = response.json()
-        
-        if data.get('status') == 'error':
-            logger.error(f"API error: {data.get('message')}")
-            return None
-        
-        # Parse quote data (this is the FORMING candle)
-        quote = {
+        # Current forming candle (last row)
+        current = data.iloc[-1]
+        current_candle = {
             'time': int(time.time()),
-            'open': float(data['open']),
-            'high': float(data['high']),
-            'low': float(data['low']),
-            'close': float(data['close']),
-            'timestamp': data.get('timestamp', int(time.time()))
+            'open': float(current['Open']),
+            'high': float(current['High']),
+            'low': float(current['Low']),
+            'close': float(current['Close']),
+            'timestamp': current.name.timestamp()
         }
         
-        return quote
+        # Previous completed candle
+        previous = data.iloc[-2]
+        previous_candle = {
+            'open': float(previous['Open']),
+            'high': float(previous['High']),
+            'low': float(previous['Low']),
+            'close': float(previous['Close'])
+        }
+        
+        return current_candle, previous_candle
         
     except Exception as e:
-        logger.error(f"Error getting quote: {e}")
-        return None
-
-
-def get_previous_candle(timeframe_str):
-    """Get previous completed candle for comparison"""
-    try:
-        interval = config.TIMEFRAMES[timeframe_str]
-        
-        url = f"{TWELVEDATA_URL}/time_series"
-        params = {
-            "symbol": config.SYMBOL,
-            "interval": interval,
-            "outputsize": 1,
-            "apikey": TWELVEDATA_KEY
-        }
-        
-        response = requests.get(url, params=params, timeout=10)
-        
-        if response.status_code != 200:
-            return None
-        
-        data = response.json()
-        values = data.get('values', [])
-        
-        if not values:
-            return None
-        
-        prev = values[0]
-        return {
-            'open': float(prev['open']),
-            'high': float(prev['high']),
-            'low': float(prev['low']),
-            'close': float(prev['close'])
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting previous candle: {e}")
-        return None
+        logger.error(f"Error getting candle data: {e}")
+        return None, None
 
 
 def calculate_body_pips(candle):
@@ -542,18 +483,14 @@ def get_time_until_close(timeframe_str):
 
 def check_momentum(timeframe_str):
     """Check momentum on FORMING candle (real-time)"""
-    global last_alert_time, last_candle_time
+    global last_alert_time
     
     momentum_threshold = config.MOMENTUM_PIPS_M5 if timeframe_str == "M5" else config.MOMENTUM_PIPS_M15
     
-    # Get current forming candle
-    current_candle = get_current_quote(timeframe_str)
-    if not current_candle:
-        return
+    # Get current forming candle and previous candle
+    current_candle, previous_candle = get_current_candle(timeframe_str)
     
-    # Get previous completed candle for comparison
-    previous_candle = get_previous_candle(timeframe_str)
-    if not previous_candle:
+    if not current_candle or not previous_candle:
         return
     
     # Calculate body size
@@ -637,34 +574,29 @@ def main():
     logger.info("=" * 70)
     logger.info("XAUUSD Momentum Bot Starting")
     logger.info("Logic: Sekolah Trading Momentum Indicator V3")
-    logger.info("Data Source: Twelve Data API (/quote - Real-time)")
+    logger.info("Data Source: Yahoo Finance (yfinance) - UNLIMITED")
     logger.info("=" * 70)
-    
-    if not TWELVEDATA_KEY:
-        logger.error("Twelve Data API key not configured!")
-        if config.ENABLE_ERROR_ALERTS:
-            send_error_alert("Config Error", "API key missing")
-        return
     
     # Test connection
     try:
-        test_quote = get_current_quote("M5")
-        if not test_quote:
-            logger.error("Failed to connect to Twelve Data API")
+        test_candle, _ = get_current_candle("M5")
+        if not test_candle:
+            logger.error("Failed to fetch data from Yahoo Finance")
             if config.ENABLE_ERROR_ALERTS:
-                send_error_alert("API Error", "Failed to fetch data")
+                send_error_alert("Data Error", "Failed to fetch XAUUSD data")
             return
-        logger.info("✓ Twelve Data API connected")
+        logger.info("✓ Yahoo Finance connected")
     except Exception as e:
-        logger.error(f"API connection error: {e}")
+        logger.error(f"Connection error: {e}")
         return
     
-    logger.info(f"Symbol: XAU/USD")
+    logger.info(f"Symbol: XAU/USD (GC=F)")
     logger.info(f"Timeframes: M5, M15")
     logger.info(f"M5: {config.MOMENTUM_PIPS_M5} pips, M15: {config.MOMENTUM_PIPS_M15} pips")
     logger.info(f"Wick Filter: {config.MAX_WICK_PERCENTAGE*100}% max")
     logger.info(f"Alert Window: {config.ALERT_WINDOW_START}-{config.ALERT_WINDOW_END}s before close")
     logger.info(f"Check Interval: {config.CHECK_INTERVAL}s (real-time monitoring)")
+    logger.info(f"Rate Limit: ∞ UNLIMITED")
     logger.info("=" * 70)
     
     consecutive_errors = 0
@@ -708,7 +640,7 @@ if __name__ == "__main__":
     main()
 BOTEOF
 
-    # Discord handler with fixed webhook loading
+    # Discord handler
     cat > "$INSTALL_DIR/utils/discord_handler.py" << 'DISCORDEOF'
 """Discord webhook handler"""
 import requests
@@ -755,7 +687,7 @@ def send_alert(data):
                 {"name": "Wick %", "value": f"{data['wick_pct']:.1f}% ✓", "inline": True},
             ],
             "description": f"**Time:** {data['time'].strftime('%Y-%m-%d %H:%M:%S')} UTC\n**Closes in:** {data['seconds_until_close']}s{engulfing_note}",
-            "footer": {"text": "XAUUSD Bot - Sekolah Trading Logic"},
+            "footer": {"text": "XAUUSD Bot - Yahoo Finance - Unlimited"},
             "timestamp": data['time'].isoformat()
         }
 
@@ -836,7 +768,7 @@ def send_test_alert():
             "description": "Bot installation successful!\n\nReal-time forming candle detection active.\nLogic: Sekolah Trading Momentum V3",
             "color": 65280,
             "fields": [
-                {"name": "Data Source", "value": "Twelve Data /quote", "inline": True},
+                {"name": "Data Source", "value": "Yahoo Finance (Unlimited)", "inline": True},
                 {"name": "Status", "value": "● Running", "inline": True}
             ],
             "timestamp": datetime.utcnow().isoformat()
@@ -909,7 +841,7 @@ STATSEOF
 create_systemd_service() {
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=XAUUSD Momentum Bot
+Description=XAUUSD Momentum Bot (Yahoo Finance)
 After=network.target
 
 [Service]
@@ -994,7 +926,6 @@ settings_menu() {
         echo "[1] Change M5 pips threshold"
         echo "[2] Change M15 pips threshold"
         echo "[3] Update Discord webhook"
-        echo "[4] Update Twelve Data API key"
         echo "[0] Back to main menu"
         echo ""
         echo -n "Choice: "
@@ -1019,13 +950,6 @@ settings_menu() {
                 read -r new_hook
                 sed -i "s|DISCORD_WEBHOOK_URL=.*|DISCORD_WEBHOOK_URL=$new_hook|" "$INSTALL_DIR/.env"
                 echo -e "${GREEN}✓ Updated.${NC}"
-                sleep 2
-                ;;
-            4)
-                echo -n "New Twelve Data API key: "
-                read -r new_key
-                sed -i "s|TWELVEDATA_API_KEY=.*|TWELVEDATA_API_KEY=$new_key|" "$INSTALL_DIR/.env"
-                echo -e "${GREEN}✓ Updated. Restart bot to apply.${NC}"
                 sleep 2
                 ;;
             0) break ;;
