@@ -1,20 +1,18 @@
 #!/bin/bash
 
 #############################################
-# XAUUSD Momentum Bot - YFinance Version
-# Version: 2.0.0 (Unlimited - No API Key)
-# Data Source: Yahoo Finance (FREE)
-# Logic: Sekolah Trading Momentum Indicator
+# XAUUSD Momentum Bot - MT5 ZeroMQ Version
+# Version: 3.0.0 (REAL-TIME)
+# Data Source: MT5 + ZeroMQ Bridge
+# Logic: 100% Sekolah Trading
 #############################################
 
 set -e
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
@@ -22,7 +20,8 @@ BOLD='\033[1m'
 INSTALL_DIR="/opt/xauusd-bot"
 SERVICE_FILE="/etc/systemd/system/xauusd-bot.service"
 LOG_DIR="$INSTALL_DIR/logs"
-BACKUP_DIR="$INSTALL_DIR/backups"
+MT5_DIR="$HOME/.wine/drive_c/Program Files/MetaTrader 5"
+EA_DIR="$MT5_DIR/MQL5/Experts"
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then 
@@ -36,183 +35,215 @@ print_banner() {
     echo -e "${CYAN}"
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
-    echo "║        🤖 XAUUSD MOMENTUM BOT - YFINANCE VERSION 🤖      ║"
-    echo "║                   Version 2.0.0                           ║"
+    echo "║     🚀 XAUUSD MOMENTUM BOT - MT5 ZEROMQ VERSION 🚀       ║"
+    echo "║                   Version 3.0.0                           ║"
+    echo "║          ⚡ TRUE REAL-TIME (<1 SEC DELAY) ⚡              ║"
     echo "║              Based on Sekolah Trading Logic               ║"
-    echo "║              Real-time Forming Candle Detection           ║"
-    echo "║                  ✅ UNLIMITED - NO API KEY                ║"
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
 
-get_bot_status() {
-    if systemctl is-active --quiet xauusd-bot 2>/dev/null; then
-        echo -e "${GREEN}● Running${NC}"
-    else
-        echo -e "${RED}○ Stopped${NC}"
-    fi
-}
-
-get_uptime() {
-    if systemctl is-active --quiet xauusd-bot 2>/dev/null; then
-        uptime=$(systemctl show xauusd-bot --property=ActiveEnterTimestamp --value)
-        if [ -n "$uptime" ]; then
-            start_time=$(date -d "$uptime" +%s)
-            current_time=$(date +%s)
-            diff=$((current_time - start_time))
-            hours=$((diff / 3600))
-            minutes=$(((diff % 3600) / 60))
-            echo "${hours}h ${minutes}m"
-        else
-            echo "N/A"
-        fi
-    else
-        echo "Not running"
-    fi
-}
-
-show_main_menu() {
-    print_banner
-    
-    echo -e "${BOLD}┌───────────────────────────────────────────────────────────┐${NC}"
-    echo -e "${BOLD}│ SYSTEM STATUS                                             │${NC}"
-    echo -e "${BOLD}├───────────────────────────────────────────────────────────┤${NC}"
-    echo -e "│ Bot Service    : $(get_bot_status) (Uptime: $(get_uptime))              "
-    
-    if [ -f "$INSTALL_DIR/.env" ]; then
-        echo -e "│ Discord Webhook: ${GREEN}✓ Configured${NC}                                 "
-        echo -e "│ Data Source    : ${GREEN}✓ Yahoo Finance (FREE)${NC}                      "
-    else
-        echo -e "│ Discord Webhook: ${RED}✗ Not configured${NC}                           "
-        echo -e "│ Data Source    : ${YELLOW}⚠ Pending installation${NC}                     "
-    fi
-    
-    echo -e "${BOLD}└───────────────────────────────────────────────────────────┘${NC}"
-    echo ""
-    
-    if [ -f "$INSTALL_DIR/config.py" ]; then
-        echo -e "${BOLD}┌───────────────────────────────────────────────────────────┐${NC}"
-        echo -e "${BOLD}│ CURRENT SETTINGS                                          │${NC}"
-        echo -e "${BOLD}├───────────────────────────────────────────────────────────┤${NC}"
-        echo -e "│ Symbol         : XAUUSD (GC=F)                            │"
-        echo -e "│ Timeframes     : M5, M15                                  │"
-        
-        m5_pips=$(grep "MOMENTUM_PIPS_M5" "$INSTALL_DIR/config.py" | grep -o '[0-9]*' | head -1)
-        m15_pips=$(grep "MOMENTUM_PIPS_M15" "$INSTALL_DIR/config.py" | grep -o '[0-9]*' | head -1)
-        
-        echo -e "│ M5 Body Min    : ${m5_pips:-40} pips                                   │"
-        echo -e "│ M15 Body Min   : ${m15_pips:-50} pips                                   │"
-        echo -e "│ Wick Filter    : 30% max (Sekolah Trading)                │"
-        echo -e "│ Data Source    : Yahoo Finance (Real-time)                │"
-        echo -e "│ Rate Limit     : ∞ UNLIMITED                              │"
-        echo -e "${BOLD}└───────────────────────────────────────────────────────────┘${NC}"
-        echo ""
-    fi
-    
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║ MAIN MENU                                                 ║${NC}"
-    echo -e "${CYAN}╠═══════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║                                                           ║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[1]${NC} ${GREEN}🚀 Install/Reinstall Bot${NC}                            ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[2]${NC} ${GREEN}▶️  Start Bot${NC}                                        ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[3]${NC} ${YELLOW}⏸️  Stop Bot${NC}                                         ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[4]${NC} ${BLUE}🔄 Restart Bot${NC}                                       ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[5]${NC} ${PURPLE}📊 View Live Logs${NC}                                    ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[6]${NC} ${PURPLE}📈 Bot Statistics${NC}                                    ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[7]${NC} ${BLUE}⚙️  Settings & Configuration${NC}                         ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[8]${NC} ${GREEN}🔔 Test Discord Alert${NC}                                ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[9]${NC} ${RED}🗑️  Uninstall Bot${NC}                                    ${CYAN}║${NC}"
-    echo -e "${CYAN}║  ${BOLD}[0]${NC} 🚪 Exit                                              ${CYAN}║${NC}"
-    echo -e "${CYAN}║                                                           ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -n -e "${BOLD}Enter your choice [0-9]: ${NC}"
-}
-
-show_progress() {
-    local current=$1
-    local total=$2
-    local message=$3
-    
-    local percent=$((current * 100 / total))
-    local filled=$((percent / 5))
-    local empty=$((20 - filled))
-    
-    printf "\r["
-    printf "%${filled}s" | tr ' ' '█'
-    printf "%${empty}s" | tr ' ' '░'
-    printf "] %3d%% - %s" "$percent" "$message"
-}
-
 install_dependencies() {
-    echo -e "\n${BLUE}[1/5]${NC} Updating system..."
+    echo -e "${BOLD}Installing dependencies...${NC}\n"
+    
+    echo -e "${BLUE}[1/7]${NC} Updating system..."
     apt update > /dev/null 2>&1
-    show_progress 1 5 "System updated"
     
-    echo -e "\n${BLUE}[2/5]${NC} Installing Python..."
+    echo -e "${BLUE}[2/7]${NC} Enabling 32-bit architecture..."
+    dpkg --add-architecture i386 > /dev/null 2>&1
+    
+    echo -e "${BLUE}[3/7]${NC} Installing Wine..."
+    mkdir -pm755 /etc/apt/keyrings 2>/dev/null || true
+    wget -q -O /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key
+    wget -q -NP /etc/apt/sources.list.d/ https://dl.winehq.org/wine-builds/ubuntu/dists/focal/winehq-focal.sources
+    apt update > /dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt install -y --install-recommends winehq-stable > /dev/null 2>&1
+    echo -e "${GREEN}✓ Wine installed${NC}"
+    
+    echo -e "${BLUE}[4/7]${NC} Installing Xvfb..."
+    apt install -y xvfb > /dev/null 2>&1
+    echo -e "${GREEN}✓ Xvfb installed${NC}"
+    
+    echo -e "${BLUE}[5/7]${NC} Downloading MetaTrader 5..."
+    wget -q https://download.mql5.com/cdn/web/metaquotes.software.corp/mt5/mt5setup.exe -O /tmp/mt5setup.exe
+    echo -e "${GREEN}✓ MT5 downloaded${NC}"
+    
+    echo -e "${BLUE}[6/7]${NC} Installing MetaTrader 5..."
+    WINEARCH=win64 WINEPREFIX=~/.wine xvfb-run wine /tmp/mt5setup.exe /auto > /dev/null 2>&1 || true
+    sleep 5
+    echo -e "${GREEN}✓ MT5 installed${NC}"
+    
+    echo -e "${BLUE}[7/7]${NC} Installing Python packages..."
     apt install -y python3 python3-pip > /dev/null 2>&1
-    show_progress 2 5 "Python installed"
+    pip3 install --break-system-packages pyzmq requests python-dotenv pytz > /dev/null 2>&1
+    echo -e "${GREEN}✓ Python packages installed${NC}"
     
-    echo -e "\n${BLUE}[3/5]${NC} Upgrading pip..."
-    python3 -m pip install --upgrade pip > /dev/null 2>&1
-    show_progress 3 5 "Pip upgraded"
+    echo ""
+}
+
+create_zmq_ea() {
+    echo -e "${BLUE}Creating ZeroMQ Expert Advisor...${NC}"
     
-    echo -e "\n${BLUE}[4/5]${NC} Installing Python packages..."
-    pip3 install --break-system-packages requests python-dotenv pytz > /dev/null 2>&1
-    show_progress 4 5 "Base packages installed"
+    mkdir -p "$EA_DIR"
     
-    echo -e "\n${BLUE}[5/5]${NC} Installing YFinance..."
-    pip3 install --break-system-packages yfinance > /dev/null 2>&1
-    show_progress 5 5 "Complete!"
+    cat > "$EA_DIR/XAUUSD_ZMQ_Server.mq5" << 'EAEOF'
+//+------------------------------------------------------------------+
+//|                                      XAUUSD_ZMQ_Server.mq5       |
+//|                        ZeroMQ Server for XAUUSD Real-time Data   |
+//|                                   Sekolah Trading Bot Backend    |
+//+------------------------------------------------------------------+
+#property copyright "XAUUSD Momentum Bot"
+#property version   "3.0"
+#property strict
+
+#include <Zmq/Zmq.mqh>
+
+input string ZMQ_PORT = "5555";
+
+Context context("xauusd_zmq");
+Socket publisher(context, ZMQ_PUB);
+
+datetime lastM5Time = 0;
+datetime lastM15Time = 0;
+
+//+------------------------------------------------------------------+
+int OnInit()
+{
+    string endpoint = "tcp://*:" + ZMQ_PORT;
     
-    echo -e "\n"
+    if(!publisher.bind(endpoint))
+    {
+        Print("ERROR: Failed to bind ZMQ publisher to ", endpoint);
+        return INIT_FAILED;
+    }
+    
+    Print("✓ ZMQ Server started on ", endpoint);
+    Print("✓ Streaming XAUUSD real-time data");
+    
+    return INIT_SUCCEEDED;
+}
+
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+    publisher.unbind("tcp://*:" + ZMQ_PORT);
+    Print("ZMQ Server stopped");
+}
+
+//+------------------------------------------------------------------+
+void OnTick()
+{
+    // Get current tick data
+    MqlTick tick;
+    if(!SymbolInfoTick(_Symbol, tick))
+        return;
+    
+    datetime currentTime = TimeCurrent();
+    
+    // Check M5 candle
+    datetime m5Time = currentTime - (currentTime % 300); // Round to 5-min
+    if(m5Time != lastM5Time)
+    {
+        SendCandleData("M5", m5Time);
+        lastM5Time = m5Time;
+    }
+    
+    // Check M15 candle
+    datetime m15Time = currentTime - (currentTime % 900); // Round to 15-min
+    if(m15Time != lastM15Time)
+    {
+        SendCandleData("M15", m15Time);
+        lastM15Time = m15Time;
+    }
+    
+    // Send current forming candle data every tick
+    SendCurrentTick(tick);
+}
+
+//+------------------------------------------------------------------+
+void SendCandleData(string timeframe, datetime candleTime)
+{
+    ENUM_TIMEFRAMES tf = (timeframe == "M5") ? PERIOD_M5 : PERIOD_M15;
+    
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    
+    if(CopyRates(_Symbol, tf, 0, 2, rates) < 2)
+        return;
+    
+    // Current forming candle (index 0)
+    string msg = StringFormat("CANDLE|%s|%d|%.5f|%.5f|%.5f|%.5f|%d",
+        timeframe,
+        (int)rates[0].time,
+        rates[0].open,
+        rates[0].high,
+        rates[0].low,
+        rates[0].close,
+        rates[0].tick_volume
+    );
+    
+    // Previous completed candle (index 1)
+    msg += StringFormat("|PREV|%.5f|%.5f|%.5f|%.5f",
+        rates[1].open,
+        rates[1].high,
+        rates[1].low,
+        rates[1].close
+    );
+    
+    ZmqMsg zmqMsg(msg);
+    publisher.send(zmqMsg);
+}
+
+//+------------------------------------------------------------------+
+void SendCurrentTick(MqlTick &tick)
+{
+    string msg = StringFormat("TICK|%.5f|%.5f|%d",
+        tick.bid,
+        tick.ask,
+        (int)tick.time
+    );
+    
+    ZmqMsg zmqMsg(msg);
+    publisher.send(zmqMsg);
+}
+//+------------------------------------------------------------------+
+EAEOF
+
+    echo -e "${GREEN}✓ ZeroMQ EA created${NC}"
 }
 
 install_bot() {
     print_banner
     echo -e "${BOLD}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║ 🚀 INSTALLING XAUUSD MOMENTUM BOT - YFINANCE            ║${NC}"
+    echo -e "${BOLD}║ 🚀 INSTALLING MT5 ZEROMQ BOT                            ║${NC}"
     echo -e "${BOLD}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    if [ -d "$INSTALL_DIR" ]; then
-        echo -e "${YELLOW}⚠️  Bot is already installed!${NC}"
-        echo ""
-        echo -n "Reinstall? This will backup current config (y/N): "
-        read -r reinstall
-        if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
-            return
-        fi
-        
-        if [ -f "$INSTALL_DIR/.env" ]; then
-            backup_file="$BACKUP_DIR/backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-            mkdir -p "$BACKUP_DIR"
-            tar -czf "$backup_file" -C "$INSTALL_DIR" .env config.py 2>/dev/null || true
-            echo -e "${GREEN}✓${NC} Backup created: $backup_file"
-        fi
-    fi
-    
-    echo ""
-    echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${BOLD}  CONFIGURATION${NC}"
-    echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
-    echo ""
-    
-    # Discord webhook
-    echo -e "${CYAN}[1/2]${NC} Discord Webhook URL"
-    echo -n "Enter webhook URL: "
+    # Get config
+    echo -e "${CYAN}[1/4]${NC} Discord Configuration"
+    echo -n "Discord Webhook URL: "
     read -r discord_webhook
     
     while [ -z "$discord_webhook" ]; do
-        echo -e "${RED}✗ Webhook URL cannot be empty!${NC}"
-        echo -n "Enter webhook URL: "
+        echo -e "${RED}✗ Webhook required${NC}"
+        echo -n "Discord Webhook URL: "
         read -r discord_webhook
     done
     
-    # Momentum settings
     echo ""
-    echo -e "${CYAN}[2/2]${NC} Momentum Settings"
+    echo -e "${CYAN}[2/4]${NC} MT5 Account (FBS Demo recommended)"
+    echo -n "MT5 Login: "
+    read -r mt5_login
+    echo -n "MT5 Password: "
+    read -rs mt5_password
+    echo ""
+    echo -n "MT5 Server [FBS-Demo]: "
+    read -r mt5_server
+    mt5_server=${mt5_server:-FBS-Demo}
+    
+    echo ""
+    echo -e "${CYAN}[3/4]${NC} Momentum Settings"
     echo -n "M5 Body minimum (pips) [40]: "
     read -r m5_pips
     m5_pips=${m5_pips:-40}
@@ -221,104 +252,78 @@ install_bot() {
     read -r m15_pips
     m15_pips=${m15_pips:-50}
     
-    # Confirmation
     echo ""
-    echo -e "${CYAN}Configuration Summary${NC}"
-    echo -e "${BOLD}════════════════════════════════════════════${NC}"
-    echo -e "Data Source    : Yahoo Finance (FREE & UNLIMITED)"
-    echo -e "Symbol         : XAU/USD (GC=F)"
+    echo -e "${CYAN}[4/4]${NC} Configuration Summary"
+    echo -e "${BOLD}═══════════════════════════════════════════${NC}"
+    echo -e "Data Source    : MT5 ZeroMQ (Real-time)"
+    echo -e "Symbol         : XAUUSD"
     echo -e "Timeframes     : M5, M15"
     echo -e "M5 Body Min    : $m5_pips pips"
     echo -e "M15 Body Min   : $m15_pips pips"
     echo -e "Wick Filter    : 30% max"
-    echo -e "Alert Window   : 20-90s before candle close"
-    echo -e "Check Interval : 1 second (precise timing)"
-    echo -e "Discord        : Configured"
-    echo -e "Rate Limit     : ∞ UNLIMITED (No API key needed)"
-    echo -e "${BOLD}════════════════════════════════════════════${NC}"
+    echo -e "Alert Window   : 20-90s before close"
+    echo -e "MT5 Server     : $mt5_server"
+    echo -e "${BOLD}═══════════════════════════════════════════${NC}"
     echo ""
-    echo -n "Proceed with installation? (y/N): "
+    echo -n "Proceed? (y/N): "
     read -r proceed
     
     if [[ ! "$proceed" =~ ^[Yy]$ ]]; then
-        echo -e "${YELLOW}Installation cancelled${NC}"
+        echo "Cancelled"
         return
     fi
     
     echo ""
-    echo -e "${BOLD}Installing...${NC}"
-    echo ""
-    
     install_dependencies
+    create_zmq_ea
     
-    echo -e "${BLUE}Creating directories...${NC}"
+    echo -e "${BLUE}Creating bot files...${NC}"
     mkdir -p "$INSTALL_DIR"
     mkdir -p "$LOG_DIR"
-    mkdir -p "$BACKUP_DIR"
     mkdir -p "$INSTALL_DIR/utils"
     
     # Create .env
     cat > "$INSTALL_DIR/.env" << EOF
-# Discord Configuration
 DISCORD_WEBHOOK_URL=$discord_webhook
+MT5_LOGIN=$mt5_login
+MT5_PASSWORD=$mt5_password
+MT5_SERVER=$mt5_server
+ZMQ_PORT=5555
 EOF
     
-    # Create config.py
-    cat > "$INSTALL_DIR/config.py" << 'EOF'
-"""
-Configuration for XAUUSD Momentum Bot
-Based on Sekolah Trading Logic
-Data Source: Yahoo Finance (yfinance)
-"""
+    # Create config
+    cat > "$INSTALL_DIR/config.py" << EOF
+SYMBOL = "XAUUSD"
+TIMEFRAMES = {"M5": 5, "M15": 15}
 
-# Symbol Settings
-SYMBOL = "GC=F"  # Gold Futures (XAUUSD equivalent on Yahoo Finance)
-TIMEFRAMES = {
-    "M5": "5m",
-    "M15": "15m"
-}
+MOMENTUM_PIPS_M5 = $m5_pips
+MOMENTUM_PIPS_M15 = $m15_pips
 
-# Momentum Settings (Sekolah Trading defaults)
-MOMENTUM_PIPS_M5 = M5_PLACEHOLDER
-MOMENTUM_PIPS_M15 = M15_PLACEHOLDER
-
-# Pip size for XAUUSD
 PIP_SIZE = 0.1
-
-# Wick Filter (Sekolah Trading: max 30%)
 WICK_FILTER_ENABLED = True
 MAX_WICK_PERCENTAGE = 0.30
 
-# Alert Window (20-90 seconds before candle close)
 ALERT_WINDOW_START = 20
 ALERT_WINDOW_END = 90
-
-# Alert Cooldown (prevent duplicate alerts)
 ALERT_COOLDOWN = 60
+CHECK_INTERVAL = 0.1
 
-# Check Interval (1s for precise timing like TradingView)
-CHECK_INTERVAL = 1
-
-# Discord Settings
 ENABLE_EMBED = True
 ENABLE_ERROR_ALERTS = True
 ENABLE_DAILY_SUMMARY = True
 DAILY_SUMMARY_HOUR = 0
 
-# Logging
 LOG_LEVEL = "INFO"
 LOG_TO_FILE = True
 LOG_FILE = "logs/bot.log"
 ERROR_LOG_FILE = "logs/error.log"
+
+ZMQ_ENDPOINT = "tcp://localhost:5555"
 EOF
-    
-    sed -i "s/M5_PLACEHOLDER/$m5_pips/" "$INSTALL_DIR/config.py"
-    sed -i "s/M15_PLACEHOLDER/$m15_pips/" "$INSTALL_DIR/config.py"
     
     create_bot_files
     create_systemd_service
     
-    chmod +x "$INSTALL_DIR"/*.py 2>/dev/null || true
     chmod 600 "$INSTALL_DIR/.env"
     
     echo ""
@@ -326,51 +331,51 @@ EOF
     echo -e "${GREEN}║ ✅ INSTALLATION COMPLETE!                                ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${NC}"
     echo ""
+    echo -e "${YELLOW}IMPORTANT - MANUAL STEPS REQUIRED:${NC}"
+    echo ""
+    echo -e "${BOLD}1. Start MT5 Terminal:${NC}"
+    echo "   xvfb-run wine \"$MT5_DIR/terminal64.exe\" &"
+    echo ""
+    echo -e "${BOLD}2. In MT5:${NC}"
+    echo "   - Login with your credentials"
+    echo "   - Tools → Options → Expert Advisors"
+    echo "   - Enable: Allow DLL imports"
+    echo "   - Enable: Allow WebRequest"
+    echo "   - Open XAUUSD chart (M5 or M15)"
+    echo "   - Drag 'XAUUSD_ZMQ_Server' EA to chart"
+    echo "   - Click 'OK' on EA settings"
+    echo ""
+    echo -e "${BOLD}3. Start Bot:${NC}"
+    echo "   systemctl start xauusd-bot"
+    echo ""
+    echo -n "Press Enter when MT5 EA is running..."
+    read -r
     
     systemctl daemon-reload
-    systemctl enable xauusd-bot > /dev/null 2>&1
-    systemctl start xauusd-bot
-    
-    sleep 3
+    systemctl enable xauusd-bot
     
     echo ""
-    echo -e "${GREEN}✓ Bot is now running!${NC}"
-    echo -e "${YELLOW}⚠️  Bot monitors forming candles in real-time${NC}"
-    echo -e "${YELLOW}⚠️  Alerts sent 20-90s before candle close${NC}"
-    echo -e "${GREEN}⚠️  Using Yahoo Finance - NO RATE LIMITS!${NC}"
+    echo -e "${GREEN}✓ Bot service enabled${NC}"
+    echo "Start with: systemctl start xauusd-bot"
     echo ""
-    echo -n "Press Enter to continue..."
-    read -r
 }
 
 create_bot_files() {
-    echo -e "${BLUE}Creating bot files...${NC}"
-    
-    # Main bot with YFinance
+    # Main bot
     cat > "$INSTALL_DIR/bot.py" << 'BOTEOF'
 #!/usr/bin/env python3
 """
-XAUUSD Momentum Bot - Real-time Forming Candle Detection
-100% IDENTICAL to TradingView "Momentum Candle V3 by Sekolah Trading"
-Data Source: Yahoo Finance (yfinance) - UNLIMITED & FREE
-
-Pine Script Logic:
-1. Body: totalRange = abs(close - open)
-2. Wick Filter: totalWick / (totalRange + totalWick) <= 0.3
-3. Bullish: close > open
-4. Bearish: close < open OR (close > open AND close < open[1])
-5. Alert Window: 20-90s before candle close (barstate.isconfirmed = false)
-6. Alert sent ONCE when first enters window
+XAUUSD Momentum Bot - MT5 ZeroMQ Version
+100% Real-time, 100% Sekolah Trading Logic
 """
 
-import yfinance as yf
+import zmq
 import time
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import os
 import sys
-import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'utils'))
 
@@ -401,58 +406,21 @@ error_logger.addHandler(error_handler)
 last_alert_time = {}
 stats = StatsTracker()
 
-
-def get_current_candle(timeframe_str):
-    """Get current forming candle from Yahoo Finance"""
-    try:
-        interval = config.TIMEFRAMES[timeframe_str]
-        
-        # Fetch last 2 candles (1 completed + 1 forming)
-        ticker = yf.Ticker(config.SYMBOL)
-        data = ticker.history(period="1d", interval=interval)
-        
-        if data.empty or len(data) < 2:
-            return None, None
-        
-        # Current forming candle (last row)
-        current = data.iloc[-1]
-        current_candle = {
-            'time': int(time.time()),
-            'open': float(current['Open']),
-            'high': float(current['High']),
-            'low': float(current['Low']),
-            'close': float(current['Close']),
-            'timestamp': current.name.timestamp()
-        }
-        
-        # Previous completed candle
-        previous = data.iloc[-2]
-        previous_candle = {
-            'open': float(previous['Open']),
-            'high': float(previous['High']),
-            'low': float(previous['Low']),
-            'close': float(previous['Close'])
-        }
-        
-        return current_candle, previous_candle
-        
-    except Exception as e:
-        logger.error(f"Error getting candle data: {e}")
-        return None, None
+# Candle storage
+candles = {
+    "M5": {"current": None, "previous": None, "start_time": None},
+    "M15": {"current": None, "previous": None, "start_time": None}
+}
 
 
 def calculate_body_pips(candle):
-    """Calculate body in pips (same as totalRange in Pine Script)"""
+    """Body = abs(close - open) in pips"""
     body = abs(candle['close'] - candle['open'])
-    pips = body / config.PIP_SIZE
-    return round(pips, 1)
+    return round(body / config.PIP_SIZE, 1)
 
 
 def calculate_wick_percentage(candle):
-    """
-    Calculate wick percentage (same as Pine Script logic)
-    totalWick / (totalRange + totalWick) <= 0.3
-    """
+    """Wick filter: totalWick / (body + totalWick) <= 0.3"""
     upper_wick = candle['high'] - max(candle['open'], candle['close'])
     lower_wick = min(candle['open'], candle['close']) - candle['low']
     total_wick = upper_wick + lower_wick
@@ -461,75 +429,57 @@ def calculate_wick_percentage(candle):
     total_range = body + total_wick
     
     if total_range == 0:
-        return 1.0  # 100% wick if no range
+        return 1.0
     
-    return (total_wick / total_range)
+    return total_wick / total_range
 
 
 def check_bearish_condition(current, previous):
-    """
-    Pine Script bearish logic:
-    isBearish = close < open OR (close > open AND close < open[1])
-    """
+    """Bearish: close < open OR (close > open AND close < open[1])"""
     is_red = current['close'] < current['open']
-    is_green_engulfing = (current['close'] > current['open'] and 
-                          current['close'] < previous['open'])
-    return is_red or is_green_engulfing
+    is_engulfing = (current['close'] > current['open'] and 
+                    current['close'] < previous['open'])
+    return is_red or is_engulfing
 
 
 def get_time_until_close(timeframe_str):
-    """
-    Get seconds until candle close
-    Same as: barTimeLeft = time_close - timenow (in Pine Script)
-    """
+    """Seconds until current candle closes"""
     now = datetime.now(timezone.utc)
-    current_minute = now.minute
-    current_second = now.second
+    current_second = int(now.timestamp())
     
-    timeframe_minutes = 5 if timeframe_str == "M5" else 15
+    tf_seconds = config.TIMEFRAMES[timeframe_str] * 60
+    candle_start = (current_second // tf_seconds) * tf_seconds
+    candle_close = candle_start + tf_seconds
     
-    # Calculate how many minutes into current candle
-    minutes_into_candle = current_minute % timeframe_minutes
-    
-    # Calculate seconds until candle closes
-    seconds_until_close = ((timeframe_minutes - minutes_into_candle) * 60) - current_second
-    
-    return seconds_until_close
+    return candle_close - current_second
 
 
-def check_momentum(timeframe_str):
+def check_momentum(timeframe_str, current_candle, previous_candle):
     """
-    Check momentum on FORMING candle (real-time)
-    100% IDENTICAL to TradingView "Momentum Candle V3 by Sekolah Trading"
+    100% SEKOLAH TRADING LOGIC
     
-    Logic:
-    1. Calculate body size (close - open)
-    2. Check if body >= minimum pips threshold
-    3. Check wick filter: total_wick / (body + total_wick) <= 30%
-    4. Bullish: close > open
-    5. Bearish: close < open OR (close > open AND close < open[1]) -- engulfing
-    6. Alert window: 20-90s before candle close (barstate.isconfirmed = false)
-    7. Send alert ONCE per candle when first enters window
+    1. Body = abs(close - open) >= threshold pips
+    2. Wick filter: totalWick / (body + totalWick) <= 30%
+    3. Bullish: close > open
+    4. Bearish: close < open OR (close > open AND close < open[1])
+    5. Alert window: 20-90s before close
+    6. barstate.isconfirmed = false (forming candle)
     """
     global last_alert_time
-    
-    momentum_threshold = config.MOMENTUM_PIPS_M5 if timeframe_str == "M5" else config.MOMENTUM_PIPS_M15
-    
-    # Get current forming candle and previous candle
-    current_candle, previous_candle = get_current_candle(timeframe_str)
     
     if not current_candle or not previous_candle:
         return
     
-    # ===== STEP 1: Calculate body (totalRange in Pine Script) =====
+    momentum_threshold = config.MOMENTUM_PIPS_M5 if timeframe_str == "M5" else config.MOMENTUM_PIPS_M15
+    
+    # STEP 1: Body check
     body = abs(current_candle['close'] - current_candle['open'])
     body_pips = body / config.PIP_SIZE
     
-    # ===== STEP 2: Check minimum body requirement =====
     if body_pips < momentum_threshold:
         return
     
-    # ===== STEP 3: Wick filter (30% max) =====
+    # STEP 2: Wick filter
     upper_wick = current_candle['high'] - max(current_candle['open'], current_candle['close'])
     lower_wick = min(current_candle['open'], current_candle['close']) - current_candle['low']
     total_wick = upper_wick + lower_wick
@@ -544,40 +494,28 @@ def check_momentum(timeframe_str):
         logger.debug(f"{timeframe_str}: Body {body_pips:.1f} pips, wick {wick_ratio*100:.1f}% FILTERED")
         return
     
-    # ===== STEP 4: Determine bullish or bearish =====
-    # Bullish: close > open
+    # STEP 3: Bullish/Bearish
     is_bullish = current_candle['close'] > current_candle['open']
+    is_bearish = check_bearish_condition(current_candle, previous_candle)
     
-    # Bearish: close < open OR (close > open AND close < open[1])
-    is_red = current_candle['close'] < current_candle['open']
-    is_engulfing = (current_candle['close'] > current_candle['open'] and 
-                    current_candle['close'] < previous_candle['open'])
-    is_bearish = is_red or is_engulfing
-    
-    # Must be either bullish or bearish
     if not (is_bullish or is_bearish):
         return
     
-    # ===== STEP 5: Alert window check (20-90s before close, barstate.isconfirmed = false) =====
+    # STEP 4: Alert window (20-90s before close)
     seconds_until_close = get_time_until_close(timeframe_str)
     
-    # CRITICAL: Only alert in window 20-90s before close
-    in_alert_window = (config.ALERT_WINDOW_START <= seconds_until_close <= config.ALERT_WINDOW_END)
-    
-    if not in_alert_window:
+    if not (config.ALERT_WINDOW_START <= seconds_until_close <= config.ALERT_WINDOW_END):
         return
     
-    # ===== STEP 6: Prevent duplicate alerts (same as barstate.isconfirmed check) =====
-    # Alert ONCE per candle when first enters window
-    candle_start_time = int(time.time() / (300 if timeframe_str == "M5" else 900)) * (300 if timeframe_str == "M5" else 900)
-    alert_key = f"{timeframe_str}_{candle_start_time}"
+    # STEP 5: Prevent duplicate alerts
+    candle_id = f"{timeframe_str}_{current_candle['time']}"
     
-    # Check if already alerted for this candle
-    if alert_key in last_alert_time:
-        # Already sent alert for this candle
+    if candle_id in last_alert_time:
         return
     
-    # ===== STEP 7: Send alert (first time in window) =====
+    # STEP 6: Send alert
+    is_engulfing = (is_bearish and current_candle['close'] > current_candle['open'])
+    
     alert_data = {
         'symbol': 'XAUUSD',
         'timeframe': timeframe_str,
@@ -602,87 +540,85 @@ def check_momentum(timeframe_str):
     
     logger.info(f"🚨 {timeframe_str} MOMENTUM {direction}{engulfing_flag}: "
                 f"{body_pips:.1f} pips | "
-                f"O:{current_candle['open']:.2f} C:{current_candle['close']:.2f} | "
                 f"Wick:{wick_ratio*100:.1f}% | "
                 f"Close in {seconds_until_close}s")
     
-    # Send alert to Discord
     if send_alert(alert_data):
-        # Mark as alerted for this candle
-        last_alert_time[alert_key] = time.time()
+        last_alert_time[candle_id] = time.time()
         stats.add_alert(timeframe_str, body_pips, is_bullish)
-    else:
-        logger.error(f"Failed to send {timeframe_str} alert to Discord")
 
 
-def check_daily_summary():
-    """Check and send daily summary"""
-    now = datetime.now(timezone.utc)
-    if now.hour == config.DAILY_SUMMARY_HOUR and now.minute == 0:
-        summary = stats.get_daily_summary()
-        if summary:
-            send_daily_summary(summary)
-            stats.reset_daily()
+def process_candle_message(parts):
+    """Process CANDLE message from MT5 ZeroMQ"""
+    try:
+        # Format: CANDLE|M5|time|open|high|low|close|volume|PREV|prev_open|prev_high|prev_low|prev_close
+        timeframe = parts[1]
+        
+        if timeframe not in candles:
+            return
+        
+        current = {
+            'time': int(parts[2]),
+            'open': float(parts[3]),
+            'high': float(parts[4]),
+            'low': float(parts[5]),
+            'close': float(parts[6])
+        }
+        
+        previous = {
+            'open': float(parts[8]),
+            'high': float(parts[9]),
+            'low': float(parts[10]),
+            'close': float(parts[11])
+        }
+        
+        candles[timeframe]['current'] = current
+        candles[timeframe]['previous'] = previous
+        
+        # Check momentum on forming candle
+        check_momentum(timeframe, current, previous)
+        
+    except Exception as e:
+        logger.error(f"Error processing candle: {e}")
 
 
 def main():
-    """Main loop"""
+    """Main ZeroMQ subscriber loop"""
     logger.info("=" * 70)
-    logger.info("XAUUSD Momentum Bot Starting")
-    logger.info("Logic: 100% IDENTICAL to TradingView 'Momentum Candle V3'")
-    logger.info("       by Sekolah Trading")
-    logger.info("Data Source: Yahoo Finance (yfinance) - UNLIMITED")
+    logger.info("XAUUSD Momentum Bot (MT5 ZeroMQ)")
+    logger.info("TRUE REAL-TIME - Sekolah Trading Logic")
     logger.info("=" * 70)
     
-    # Test connection
-    try:
-        test_candle, _ = get_current_candle("M5")
-        if not test_candle:
-            logger.error("Failed to fetch data from Yahoo Finance")
-            if config.ENABLE_ERROR_ALERTS:
-                send_error_alert("Data Error", "Failed to fetch XAUUSD data")
-            return
-        logger.info("✓ Yahoo Finance connected")
-    except Exception as e:
-        logger.error(f"Connection error: {e}")
-        return
+    # Setup ZeroMQ
+    context = zmq.Context()
+    socket = context.socket(zmq.SUB)
+    socket.connect(config.ZMQ_ENDPOINT)
+    socket.setsockopt_string(zmq.SUBSCRIBE, "")
     
-    logger.info(f"Symbol: XAU/USD (GC=F)")
+    logger.info(f"✓ Connected to ZeroMQ: {config.ZMQ_ENDPOINT}")
+    logger.info(f"Symbol: XAUUSD")
     logger.info(f"Timeframes: M5, M15")
-    logger.info(f"M5 Body Min: {config.MOMENTUM_PIPS_M5} pips | M15: {config.MOMENTUM_PIPS_M15} pips")
-    logger.info(f"Wick Filter: totalWick/(body+totalWick) <= {config.MAX_WICK_PERCENTAGE*100}%")
-    logger.info(f"Alert Window: {config.ALERT_WINDOW_START}-{config.ALERT_WINDOW_END}s before close")
-    logger.info(f"Check Interval: {config.CHECK_INTERVAL}s (precise timing)")
-    logger.info(f"Bearish Logic: RED candle OR GREEN engulfing (close < open[1])")
-    logger.info(f"Rate Limit: ∞ UNLIMITED")
+    logger.info(f"M5: {config.MOMENTUM_PIPS_M5} pips, M15: {config.MOMENTUM_PIPS_M15} pips")
+    logger.info(f"Wick Filter: {config.MAX_WICK_PERCENTAGE*100}% max")
+    logger.info(f"Alert Window: {config.ALERT_WINDOW_START}-{config.ALERT_WINDOW_END}s")
     logger.info("=" * 70)
-    
-    consecutive_errors = 0
-    max_errors = 5
+    logger.info("Waiting for MT5 data...")
     
     try:
         while True:
             try:
-                for tf in config.TIMEFRAMES.keys():
-                    check_momentum(tf)
+                # Receive message
+                message = socket.recv_string(flags=zmq.NOBLOCK)
+                parts = message.split("|")
                 
-                if config.ENABLE_DAILY_SUMMARY:
-                    check_daily_summary()
-                
-                consecutive_errors = 0
-                time.sleep(config.CHECK_INTERVAL)
-                
+                if parts[0] == "CANDLE":
+                    process_candle_message(parts)
+                    
+            except zmq.Again:
+                time.sleep(0.01)
             except Exception as e:
-                error_logger.error(f"Loop error: {e}", exc_info=True)
-                consecutive_errors += 1
-                
-                if consecutive_errors >= max_errors:
-                    logger.error("Too many consecutive errors. Exiting...")
-                    if config.ENABLE_ERROR_ALERTS:
-                        send_error_alert("Bot Error", f"Too many errors: {str(e)}")
-                    break
-                
-                time.sleep(10)
+                logger.error(f"Message error: {e}")
+                time.sleep(0.1)
                 
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
@@ -691,6 +627,8 @@ def main():
         if config.ENABLE_ERROR_ALERTS:
             send_error_alert("Fatal Error", str(e))
     finally:
+        socket.close()
+        context.term()
         logger.info("Bot shut down")
 
 
@@ -698,38 +636,29 @@ if __name__ == "__main__":
     main()
 BOTEOF
 
-    # Discord handler
+    # Discord handler (same as before)
     cat > "$INSTALL_DIR/utils/discord_handler.py" << 'DISCORDEOF'
-"""Discord webhook handler"""
 import requests
 import logging
 import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
-
-def get_webhook_url():
-    """Get webhook URL from environment"""
-    return os.getenv("DISCORD_WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
 def send_alert(data):
-    """Send momentum alert to Discord"""
-    WEBHOOK_URL = get_webhook_url()
-    
     if not WEBHOOK_URL:
-        logger.error("Discord webhook URL not configured!")
         return False
-
     try:
         direction = "🟢 BULLISH" if data['is_bullish'] else "🔴 BEARISH"
         color = 65280 if data['is_bullish'] else 16711680
-
+        
         engulfing_note = ""
         if data['is_engulfing']:
-            engulfing_note = f"\n⚠️ Close ({data['close']:.2f}) < Prev Open ({data['prev_open']:.2f})"
-
+            engulfing_note = f"\n⚠️ Bearish Engulfing: Close ({data['close']:.2f}) < Prev Open ({data['prev_open']:.2f})"
+        
         embed = {
-            "title": "🚨 MOMENTUM DETECTED!",
+            "title": "🚨 MOMENTUM DETECTED! (REAL-TIME)",
             "color": color,
             "fields": [
                 {"name": "Pair", "value": data['symbol'], "inline": True},
@@ -741,34 +670,21 @@ def send_alert(data):
                 {"name": "Close", "value": f"{data['close']:.2f}", "inline": True},
                 {"name": "High", "value": f"{data['high']:.2f}", "inline": True},
                 {"name": "Low", "value": f"{data['low']:.2f}", "inline": True},
-                {"name": "", "value": "", "inline": True},
                 {"name": "Wick %", "value": f"{data['wick_pct']:.1f}% ✓", "inline": True},
             ],
-            "description": f"**Time:** {data['time'].strftime('%Y-%m-%d %H:%M:%S')} UTC\n**Closes in:** {data['seconds_until_close']}s{engulfing_note}",
-            "footer": {"text": "XAUUSD Bot - Yahoo Finance - Unlimited"},
+            "description": f"**Time:** {data['time'].strftime('%H:%M:%S')} UTC\n**Closes in:** {data['seconds_until_close']}s{engulfing_note}",
+            "footer": {"text": "MT5 Real-time | Sekolah Trading"},
             "timestamp": data['time'].isoformat()
         }
-
-        response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
         
-        if response.status_code == 204:
-            logger.info(f"✓ Alert sent to Discord: {data['timeframe']} {data['body_pips']} pips")
-            return True
-        else:
-            logger.error(f"Discord API error: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Failed to send alert: {e}")
+        response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
+        return response.status_code == 204
+    except:
         return False
 
 def send_error_alert(title, message, is_recovery=False):
-    """Send error alert to Discord"""
-    WEBHOOK_URL = get_webhook_url()
-    
     if not WEBHOOK_URL:
         return False
-        
     try:
         color = 65280 if is_recovery else 16711680
         icon = "✅" if is_recovery else "🔴"
@@ -780,25 +696,18 @@ def send_error_alert(title, message, is_recovery=False):
         }
         response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
         return response.status_code == 204
-    except Exception as e:
-        logger.error(f"Failed to send error alert: {e}")
+    except:
         return False
 
 def send_daily_summary(summary):
-    """Send daily summary to Discord"""
-    WEBHOOK_URL = get_webhook_url()
-    
     if not WEBHOOK_URL:
         return False
-        
     try:
         fields = [
             {"name": "Total", "value": str(summary['total_alerts']), "inline": True},
-            {"name": "M5", "value": str(summary['m5_alerts']), "inline": True},
-            {"name": "M15", "value": str(summary['m15_alerts']), "inline": True},
-            {"name": "🟢 Bull", "value": f"{summary['bullish']} ({summary['bullish_pct']:.1f}%)", "inline": True},
-            {"name": "🔴 Bear", "value": f"{summary['bearish']} ({summary['bearish_pct']:.1f}%)", "inline": True},
-            {"name": "Avg", "value": f"{summary['avg_pips']:.1f} pips", "inline": True},
+            {"name": "🟢 Bull", "value": f"{summary['bullish']}", "inline": True},
+            {"name": "🔴 Bear", "value": f"{summary['bearish']}", "inline": True},
+            {"name": "Avg Pips", "value": f"{summary['avg_pips']:.1f}", "inline": True},
         ]
         embed = {
             "title": f"📊 DAILY SUMMARY - {summary['date']}",
@@ -808,46 +717,12 @@ def send_daily_summary(summary):
         }
         response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
         return response.status_code == 204
-    except Exception as e:
-        logger.error(f"Failed to send daily summary: {e}")
-        return False
-
-def send_test_alert():
-    """Send test alert to Discord"""
-    WEBHOOK_URL = get_webhook_url()
-    
-    if not WEBHOOK_URL:
-        logger.error("Webhook URL not found!")
-        return False
-        
-    try:
-        embed = {
-            "title": "✅ TEST ALERT",
-            "description": "Bot installation successful!\n\nReal-time forming candle detection active.\nLogic: Sekolah Trading Momentum V3",
-            "color": 65280,
-            "fields": [
-                {"name": "Data Source", "value": "Yahoo Finance (Unlimited)", "inline": True},
-                {"name": "Status", "value": "● Running", "inline": True}
-            ],
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
-        
-        if response.status_code == 204:
-            logger.info("✓ Test alert sent successfully")
-            return True
-        else:
-            logger.error(f"Test alert failed: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Test alert exception: {e}")
+    except:
         return False
 DISCORDEOF
 
     # Stats tracker
     cat > "$INSTALL_DIR/utils/stats.py" << 'STATSEOF'
-"""Statistics tracker for momentum alerts"""
 from datetime import datetime, timezone
 
 class StatsTracker:
@@ -871,8 +746,6 @@ class StatsTracker:
             return None
         
         total = len(self.alerts)
-        m5 = len([a for a in self.alerts if a['timeframe'] == 'M5'])
-        m15 = len([a for a in self.alerts if a['timeframe'] == 'M15'])
         bull = len([a for a in self.alerts if a['is_bullish']])
         bear = total - bull
         pips = [a['pips'] for a in self.alerts]
@@ -880,26 +753,20 @@ class StatsTracker:
         return {
             'date': self.last_reset.strftime('%Y-%m-%d'),
             'total_alerts': total,
-            'm5_alerts': m5,
-            'm15_alerts': m15,
             'bullish': bull,
             'bearish': bear,
-            'bullish_pct': (bull / total * 100) if total else 0,
-            'bearish_pct': (bear / total * 100) if total else 0,
             'avg_pips': sum(pips) / len(pips) if pips else 0,
-            'max_pips': max(pips) if pips else 0,
-            'min_pips': min(pips) if pips else 0
+            'max_pips': max(pips) if pips else 0
         }
 STATSEOF
 
     touch "$INSTALL_DIR/utils/__init__.py"
-    echo -e "${GREEN}✓${NC} Bot files created"
 }
 
 create_systemd_service() {
     cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=XAUUSD Momentum Bot (Yahoo Finance)
+Description=XAUUSD Momentum Bot (MT5 ZeroMQ)
 After=network.target
 
 [Service]
@@ -914,173 +781,12 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo -e "${GREEN}✓${NC} Service created"
-}
-
-start_bot() {
-    print_banner
-    echo -e "${GREEN}Starting bot...${NC}"
-    systemctl start xauusd-bot
-    sleep 2
-    if systemctl is-active --quiet xauusd-bot; then
-        echo -e "${GREEN}✓ Bot started${NC}"
-    else
-        echo -e "${RED}✗ Failed to start${NC}"
-    fi
-    echo -n "Press Enter..."
-    read -r
-}
-
-stop_bot() {
-    print_banner
-    echo -n "Stop bot? (y/N): "
-    read -r confirm
-    if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        systemctl stop xauusd-bot
-        echo -e "${GREEN}✓ Stopped${NC}"
-    fi
-    echo -n "Press Enter..."
-    read -r
-}
-
-restart_bot() {
-    print_banner
-    systemctl restart xauusd-bot
-    echo -e "${GREEN}✓ Restarted${NC}"
-    echo -n "Press Enter..."
-    read -r
-}
-
-view_logs() {
-    print_banner
-    echo -e "${PURPLE}Live logs (Ctrl+C to exit)...${NC}"
-    sleep 2
-    journalctl -u xauusd-bot -f
-}
-
-show_statistics() {
-    print_banner
-    echo -e "${BOLD}BOT STATISTICS${NC}"
-    echo ""
-    if [ -f "$LOG_DIR/bot.log" ]; then
-        total=$(grep -c "MOMENTUM" "$LOG_DIR/bot.log" 2>/dev/null || echo "0")
-        echo "Total Alerts: $total"
-        echo ""
-        echo "Recent alerts:"
-        grep "MOMENTUM" "$LOG_DIR/bot.log" | tail -10
-    else
-        echo "No statistics available"
-    fi
-    echo ""
-    echo -n "Press Enter..."
-    read -r
-}
-
-settings_menu() {
-    while true; do
-        print_banner
-        echo -e "${BOLD}SETTINGS & CONFIGURATION${NC}"
-        echo ""
-        echo "[1] Change M5 pips threshold"
-        echo "[2] Change M15 pips threshold"
-        echo "[3] Update Discord webhook"
-        echo "[0] Back to main menu"
-        echo ""
-        echo -n "Choice: "
-        read -r choice
-        case $choice in
-            1)
-                echo -n "New M5 pips threshold: "
-                read -r new_m5
-                sed -i "s/MOMENTUM_PIPS_M5 = [0-9]*/MOMENTUM_PIPS_M5 = $new_m5/" "$INSTALL_DIR/config.py"
-                echo -e "${GREEN}✓ Updated. Restart bot to apply.${NC}"
-                sleep 2
-                ;;
-            2)
-                echo -n "New M15 pips threshold: "
-                read -r new_m15
-                sed -i "s/MOMENTUM_PIPS_M15 = [0-9]*/MOMENTUM_PIPS_M15 = $new_m15/" "$INSTALL_DIR/config.py"
-                echo -e "${GREEN}✓ Updated. Restart bot to apply.${NC}"
-                sleep 2
-                ;;
-            3)
-                echo -n "New Discord webhook URL: "
-                read -r new_hook
-                sed -i "s|DISCORD_WEBHOOK_URL=.*|DISCORD_WEBHOOK_URL=$new_hook|" "$INSTALL_DIR/.env"
-                echo -e "${GREEN}✓ Updated.${NC}"
-                sleep 2
-                ;;
-            0) break ;;
-        esac
-    done
-}
-
-test_discord_webhook() {
-    cd /opt/xauusd-bot
-    python3 << PYEOF
-import sys
-import os
-sys.path.insert(0, '/opt/xauusd-bot/utils')
-os.chdir('/opt/xauusd-bot')
-from dotenv import load_dotenv
-load_dotenv('/opt/xauusd-bot/.env')
-from discord_handler import send_test_alert
-if send_test_alert():
-    print("✓ Test alert sent!")
-else:
-    print("✗ Failed to send test alert")
-PYEOF
-}
-
-uninstall_bot() {
-    print_banner
-    echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${RED}║ ⚠️  UNINSTALL BOT                                        ║${NC}"
-    echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}This will remove:${NC}"
-    echo "  - Bot service"
-    echo "  - All bot files in $INSTALL_DIR"
-    echo "  - Configuration and logs"
-    echo ""
-    echo -n "Type ${BOLD}UNINSTALL${NC} to confirm: "
-    read -r confirm
-    if [ "$confirm" = "UNINSTALL" ]; then
-        echo ""
-        echo "Uninstalling..."
-        systemctl stop xauusd-bot 2>/dev/null || true
-        systemctl disable xauusd-bot 2>/dev/null || true
-        rm -f "$SERVICE_FILE"
-        rm -rf "$INSTALL_DIR"
-        systemctl daemon-reload
-        echo -e "${GREEN}✓ Bot uninstalled successfully${NC}"
-    else
-        echo -e "${YELLOW}Uninstall cancelled${NC}"
-    fi
-    echo ""
-    echo -n "Press Enter..."
-    read -r
 }
 
 main() {
     check_root
-    while true; do
-        show_main_menu
-        read -r choice
-        case $choice in
-            1) install_bot ;;
-            2) start_bot ;;
-            3) stop_bot ;;
-            4) restart_bot ;;
-            5) view_logs ;;
-            6) show_statistics ;;
-            7) settings_menu ;;
-            8) test_discord_webhook; echo ""; echo -n "Press Enter..."; read -r ;;
-            9) uninstall_bot ;;
-            0) clear; echo "Goodbye!"; exit 0 ;;
-            *) echo "Invalid choice"; sleep 1 ;;
-        esac
-    done
+    print_banner
+    install_bot
 }
 
 main
