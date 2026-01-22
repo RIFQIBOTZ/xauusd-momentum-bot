@@ -2,8 +2,9 @@
 
 #############################################
 # XAUUSD Momentum Bot - Linux Installer
-# Version: 1.0.2 (Twelve Data API)
-# Data Source: Twelve Data API
+# Version: 1.1.0 (Real-time Forming Candles)
+# Data Source: Twelve Data API (/quote)
+# Logic: Sekolah Trading Momentum Indicator
 #############################################
 
 set -e
@@ -36,9 +37,9 @@ print_banner() {
     echo "╔═══════════════════════════════════════════════════════════╗"
     echo "║                                                           ║"
     echo "║        🤖 XAUUSD MOMENTUM BOT - CONTROL PANEL 🤖         ║"
-    echo "║                   Version 1.0.2                           ║"
+    echo "║                   Version 1.1.0                           ║"
     echo "║              Based on Sekolah Trading Logic               ║"
-    echo "║              Data: Twelve Data API (Real-time)            ║"
+    echo "║              Real-time Forming Candle Detection           ║"
     echo "║                                                           ║"
     echo "╚═══════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -102,7 +103,7 @@ show_main_menu() {
         echo -e "│ M5 Body Min    : ${m5_pips:-40} pips                                   │"
         echo -e "│ M15 Body Min   : ${m15_pips:-50} pips                                   │"
         echo -e "│ Wick Filter    : 30% max (Sekolah Trading)                │"
-        echo -e "│ Data Source    : Twelve Data API                          │"
+        echo -e "│ Data Source    : Twelve Data /quote (Real-time)           │"
         echo -e "${BOLD}└───────────────────────────────────────────────────────────┘${NC}"
         echo ""
     fi
@@ -237,13 +238,14 @@ install_bot() {
     echo ""
     echo -e "${CYAN}Configuration Summary${NC}"
     echo -e "${BOLD}════════════════════════════════════════════${NC}"
-    echo -e "Data Source    : Twelve Data API (Free tier)"
+    echo -e "Data Source    : Twelve Data /quote (Real-time)"
     echo -e "Symbol         : XAU/USD"
     echo -e "Timeframes     : M5, M15"
     echo -e "M5 Body Min    : $m5_pips pips"
     echo -e "M15 Body Min   : $m15_pips pips"
     echo -e "Wick Filter    : 30% max"
-    echo -e "Check Interval : 30 seconds (rate limit safe)"
+    echo -e "Alert Window   : 20-90s before candle close"
+    echo -e "Check Interval : 5 seconds (real-time monitoring)"
     echo -e "Discord        : Configured"
     echo -e "${BOLD}════════════════════════════════════════════${NC}"
     echo ""
@@ -281,38 +283,38 @@ EOF
 """
 Configuration for XAUUSD Momentum Bot
 Based on Sekolah Trading Logic
-Data Source: Twelve Data API
+Data Source: Twelve Data API (/quote endpoint)
 """
 
 # Symbol Settings
-SYMBOL = "XAU/USD"  # Twelve Data format
+SYMBOL = "XAU/USD"
 TIMEFRAMES = {
     "M5": "5min",
     "M15": "15min"
 }
 
-# Momentum Settings
+# Momentum Settings (Sekolah Trading defaults)
 MOMENTUM_PIPS_M5 = M5_PLACEHOLDER
 MOMENTUM_PIPS_M15 = M15_PLACEHOLDER
 
-# Pip size
+# Pip size for XAUUSD
 PIP_SIZE = 0.1
 
-# Wick Filter
+# Wick Filter (Sekolah Trading: max 30%)
 WICK_FILTER_ENABLED = True
 MAX_WICK_PERCENTAGE = 0.30
 
-# Alert Window
+# Alert Window (20-90 seconds before candle close)
 ALERT_WINDOW_START = 20
 ALERT_WINDOW_END = 90
 
-# Alert Cooldown
+# Alert Cooldown (prevent duplicate alerts)
 ALERT_COOLDOWN = 60
 
-# Check Interval (30s = 4 calls/min, safe for free tier 8/min)
-CHECK_INTERVAL = 30
+# Check Interval (5s for real-time monitoring)
+CHECK_INTERVAL = 5
 
-# Discord
+# Discord Settings
 ENABLE_EMBED = True
 ENABLE_ERROR_ALERTS = True
 ENABLE_DAILY_SUMMARY = True
@@ -348,10 +350,11 @@ EOF
     systemctl start xauusd-bot
     
     sleep 3
-    test_discord_webhook
     
     echo ""
     echo -e "${GREEN}✓ Bot is now running!${NC}"
+    echo -e "${YELLOW}⚠️  Bot monitors forming candles in real-time${NC}"
+    echo -e "${YELLOW}⚠️  Alerts sent 20-90s before candle close${NC}"
     echo ""
     echo -n "Press Enter to continue..."
     read -r
@@ -360,12 +363,13 @@ EOF
 create_bot_files() {
     echo -e "${BLUE}Creating bot files...${NC}"
     
-    # Main bot
+    # Main bot with REAL-TIME FORMING CANDLE logic
     cat > "$INSTALL_DIR/bot.py" << 'BOTEOF'
 #!/usr/bin/env python3
 """
-XAUUSD Momentum Bot - Twelve Data API Version
-Data Source: Twelve Data API
+XAUUSD Momentum Bot - Real-time Forming Candle Detection
+Based on Sekolah Trading Momentum Indicator V3
+Data Source: Twelve Data API (/quote endpoint)
 """
 
 import requests
@@ -404,13 +408,55 @@ error_logger.addHandler(error_handler)
 
 last_alert_time = {}
 stats = StatsTracker()
+last_candle_time = {}
 
 TWELVEDATA_KEY = os.getenv("TWELVEDATA_API_KEY")
 TWELVEDATA_URL = config.TWELVEDATA_API_URL
 
 
-def get_candles(timeframe_str):
-    """Get candles from Twelve Data API"""
+def get_current_quote(timeframe_str):
+    """Get current quote (forming candle) from Twelve Data"""
+    try:
+        interval = config.TIMEFRAMES[timeframe_str]
+        
+        url = f"{TWELVEDATA_URL}/quote"
+        params = {
+            "symbol": config.SYMBOL,
+            "interval": interval,
+            "apikey": TWELVEDATA_KEY
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            logger.error(f"API error: {response.status_code}")
+            return None
+        
+        data = response.json()
+        
+        if data.get('status') == 'error':
+            logger.error(f"API error: {data.get('message')}")
+            return None
+        
+        # Parse quote data (this is the FORMING candle)
+        quote = {
+            'time': int(time.time()),
+            'open': float(data['open']),
+            'high': float(data['high']),
+            'low': float(data['low']),
+            'close': float(data['close']),
+            'timestamp': data.get('timestamp', int(time.time()))
+        }
+        
+        return quote
+        
+    except Exception as e:
+        logger.error(f"Error getting quote: {e}")
+        return None
+
+
+def get_previous_candle(timeframe_str):
+    """Get previous completed candle for comparison"""
     try:
         interval = config.TIMEFRAMES[timeframe_str]
         
@@ -418,48 +464,31 @@ def get_candles(timeframe_str):
         params = {
             "symbol": config.SYMBOL,
             "interval": interval,
-            "outputsize": 2,
+            "outputsize": 1,
             "apikey": TWELVEDATA_KEY
         }
         
         response = requests.get(url, params=params, timeout=10)
         
         if response.status_code != 200:
-            logger.error(f"Twelve Data API error: {response.status_code}")
             return None
         
         data = response.json()
-        
-        # Check for error in response
-        if data.get('status') == 'error':
-            logger.error(f"API error: {data.get('message', 'Unknown error')}")
-            return None
-        
         values = data.get('values', [])
         
-        if len(values) < 2:
+        if not values:
             return None
         
-        # Convert to our format (Twelve Data returns newest first)
-        result = []
-        for v in reversed(values):  # Reverse to get oldest first
-            try:
-                result.append({
-                    'time': datetime.fromisoformat(v['datetime'].replace(' ', 'T')).timestamp(),
-                    'open': float(v['open']),
-                    'high': float(v['high']),
-                    'low': float(v['low']),
-                    'close': float(v['close']),
-                    'complete': True  # Twelve Data returns completed candles
-                })
-            except (KeyError, ValueError) as e:
-                logger.error(f"Error parsing candle data: {e}")
-                continue
-        
-        return result if len(result) >= 2 else None
+        prev = values[0]
+        return {
+            'open': float(prev['open']),
+            'high': float(prev['high']),
+            'low': float(prev['low']),
+            'close': float(prev['close'])
+        }
         
     except Exception as e:
-        logger.error(f"Error getting candles: {e}")
+        logger.error(f"Error getting previous candle: {e}")
         return None
 
 
@@ -486,7 +515,11 @@ def calculate_wick_percentage(candle):
 
 
 def check_bearish_condition(current, previous):
-    """Check bearish condition"""
+    """
+    Check bearish condition (Sekolah Trading logic):
+    - Bearish = RED candle (close < open)
+    - OR GREEN candle but close < previous open (engulfing pattern)
+    """
     is_red = current['close'] < current['open']
     is_engulfing = (current['close'] > current['open'] and 
                     current['close'] < previous['open'])
@@ -499,7 +532,6 @@ def get_time_until_close(timeframe_str):
     current_minute = now.minute
     current_second = now.second
     
-    # Map timeframe to minutes
     timeframe_minutes = 5 if timeframe_str == "M5" else 15
     
     minutes_into_candle = current_minute % timeframe_minutes
@@ -509,47 +541,58 @@ def get_time_until_close(timeframe_str):
 
 
 def check_momentum(timeframe_str):
-    """Check momentum"""
-    global last_alert_time
+    """Check momentum on FORMING candle (real-time)"""
+    global last_alert_time, last_candle_time
     
     momentum_threshold = config.MOMENTUM_PIPS_M5 if timeframe_str == "M5" else config.MOMENTUM_PIPS_M15
     
-    candles = get_candles(timeframe_str)
-    if not candles or len(candles) < 2:
+    # Get current forming candle
+    current_candle = get_current_quote(timeframe_str)
+    if not current_candle:
         return
     
-    current_candle = candles[-1]
-    previous_candle = candles[-2]
+    # Get previous completed candle for comparison
+    previous_candle = get_previous_candle(timeframe_str)
+    if not previous_candle:
+        return
     
+    # Calculate body size
     body_pips = calculate_body_pips(current_candle)
     
+    # Check if body meets threshold
     if body_pips < momentum_threshold:
         return
     
+    # Check wick filter
     wick_pct = calculate_wick_percentage(current_candle)
     
     if config.WICK_FILTER_ENABLED and wick_pct > config.MAX_WICK_PERCENTAGE:
-        logger.debug(f"{timeframe_str}: Body {body_pips} OK, wick {wick_pct*100:.1f}% filtered")
+        logger.debug(f"{timeframe_str}: Body {body_pips} pips, wick {wick_pct*100:.1f}% filtered")
         return
     
+    # Check alert window (20-90s before close)
     seconds_until_close = get_time_until_close(timeframe_str)
     
     if not (config.ALERT_WINDOW_START <= seconds_until_close <= config.ALERT_WINDOW_END):
         return
     
+    # Determine bullish or bearish
     is_bullish = current_candle['close'] > current_candle['open']
     is_bearish = check_bearish_condition(current_candle, previous_candle)
     
     if not (is_bullish or is_bearish):
         return
     
-    cooldown_key = f"{timeframe_str}_{int(current_candle['time'])}"
+    # Check cooldown (prevent duplicate alerts)
+    candle_start_time = int(time.time() / (300 if timeframe_str == "M5" else 900)) * (300 if timeframe_str == "M5" else 900)
+    cooldown_key = f"{timeframe_str}_{candle_start_time}"
     current_time = time.time()
     
     if cooldown_key in last_alert_time:
         if current_time - last_alert_time[cooldown_key] < config.ALERT_COOLDOWN:
             return
     
+    # Prepare alert data
     alert_data = {
         'symbol': 'XAUUSD',
         'timeframe': timeframe_str,
@@ -565,12 +608,15 @@ def check_momentum(timeframe_str):
         'is_bearish': is_bearish,
         'is_engulfing': (is_bearish and current_candle['close'] > current_candle['open']),
         'prev_open': previous_candle['open'],
-        'time': datetime.fromtimestamp(current_candle['time'], tz=timezone.utc),
+        'time': datetime.now(timezone.utc),
         'seconds_until_close': seconds_until_close
     }
     
-    logger.info(f"🚨 {timeframe_str}: MOMENTUM! {body_pips} pips ({'BULL' if is_bullish else 'BEAR'})")
+    logger.info(f"🚨 {timeframe_str}: MOMENTUM! {body_pips} pips ({'BULL' if is_bullish else 'BEAR'}) | "
+                f"O:{current_candle['open']:.2f} C:{current_candle['close']:.2f} | "
+                f"Wick:{wick_pct*100:.1f}% | Close in {seconds_until_close}s")
     
+    # Send alert
     if send_alert(alert_data):
         last_alert_time[cooldown_key] = current_time
         stats.add_alert(timeframe_str, body_pips, is_bullish)
@@ -588,24 +634,25 @@ def check_daily_summary():
 
 def main():
     """Main loop"""
-    logger.info("=" * 60)
+    logger.info("=" * 70)
     logger.info("XAUUSD Momentum Bot Starting")
-    logger.info("Data Source: Twelve Data API")
-    logger.info("=" * 60)
+    logger.info("Logic: Sekolah Trading Momentum Indicator V3")
+    logger.info("Data Source: Twelve Data API (/quote - Real-time)")
+    logger.info("=" * 70)
     
     if not TWELVEDATA_KEY:
         logger.error("Twelve Data API key not configured!")
         if config.ENABLE_ERROR_ALERTS:
-            send_error_alert("Config Error", "Twelve Data API key missing")
+            send_error_alert("Config Error", "API key missing")
         return
     
     # Test connection
     try:
-        test_candles = get_candles("M5")
-        if not test_candles:
+        test_quote = get_current_quote("M5")
+        if not test_quote:
             logger.error("Failed to connect to Twelve Data API")
             if config.ENABLE_ERROR_ALERTS:
-                send_error_alert("API Error", "Failed to fetch data from Twelve Data")
+                send_error_alert("API Error", "Failed to fetch data")
             return
         logger.info("✓ Twelve Data API connected")
     except Exception as e:
@@ -613,11 +660,12 @@ def main():
         return
     
     logger.info(f"Symbol: XAU/USD")
-    logger.info(f"Timeframes: M5 (5min), M15 (15min)")
+    logger.info(f"Timeframes: M5, M15")
     logger.info(f"M5: {config.MOMENTUM_PIPS_M5} pips, M15: {config.MOMENTUM_PIPS_M15} pips")
     logger.info(f"Wick Filter: {config.MAX_WICK_PERCENTAGE*100}% max")
-    logger.info(f"Check Interval: {config.CHECK_INTERVAL}s")
-    logger.info("=" * 60)
+    logger.info(f"Alert Window: {config.ALERT_WINDOW_START}-{config.ALERT_WINDOW_END}s before close")
+    logger.info(f"Check Interval: {config.CHECK_INTERVAL}s (real-time monitoring)")
+    logger.info("=" * 70)
     
     consecutive_errors = 0
     max_errors = 5
@@ -639,7 +687,7 @@ def main():
                 consecutive_errors += 1
                 
                 if consecutive_errors >= max_errors:
-                    logger.error("Too many errors. Exiting...")
+                    logger.error("Too many consecutive errors. Exiting...")
                     if config.ENABLE_ERROR_ALERTS:
                         send_error_alert("Bot Error", f"Too many errors: {str(e)}")
                     break
@@ -660,7 +708,7 @@ if __name__ == "__main__":
     main()
 BOTEOF
 
-    # Discord handler
+    # Discord handler with fixed webhook loading
     cat > "$INSTALL_DIR/utils/discord_handler.py" << 'DISCORDEOF'
 """Discord webhook handler"""
 import requests
@@ -669,21 +717,27 @@ import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
-WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+
+def get_webhook_url():
+    """Get webhook URL from environment"""
+    return os.getenv("DISCORD_WEBHOOK_URL")
 
 def send_alert(data):
-    """Send alert"""
-    if not WEBHOOK_URL:
-        return False
+    """Send momentum alert to Discord"""
+    WEBHOOK_URL = get_webhook_url()
     
+    if not WEBHOOK_URL:
+        logger.error("Discord webhook URL not configured!")
+        return False
+
     try:
         direction = "🟢 BULLISH" if data['is_bullish'] else "🔴 BEARISH"
         color = 65280 if data['is_bullish'] else 16711680
-        
+
         engulfing_note = ""
         if data['is_engulfing']:
             engulfing_note = f"\n⚠️ Close ({data['close']:.2f}) < Prev Open ({data['prev_open']:.2f})"
-        
+
         embed = {
             "title": "🚨 MOMENTUM DETECTED!",
             "color": color,
@@ -701,19 +755,30 @@ def send_alert(data):
                 {"name": "Wick %", "value": f"{data['wick_pct']:.1f}% ✓", "inline": True},
             ],
             "description": f"**Time:** {data['time'].strftime('%Y-%m-%d %H:%M:%S')} UTC\n**Closes in:** {data['seconds_until_close']}s{engulfing_note}",
-            "footer": {"text": "XAUUSD Bot - Twelve Data API"},
+            "footer": {"text": "XAUUSD Bot - Sekolah Trading Logic"},
             "timestamp": data['time'].isoformat()
         }
-        
+
         response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
-        return response.status_code == 204
-    except:
+        
+        if response.status_code == 204:
+            logger.info(f"✓ Alert sent to Discord: {data['timeframe']} {data['body_pips']} pips")
+            return True
+        else:
+            logger.error(f"Discord API error: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to send alert: {e}")
         return False
 
 def send_error_alert(title, message, is_recovery=False):
-    """Send error alert"""
+    """Send error alert to Discord"""
+    WEBHOOK_URL = get_webhook_url()
+    
     if not WEBHOOK_URL:
         return False
+        
     try:
         color = 65280 if is_recovery else 16711680
         icon = "✅" if is_recovery else "🔴"
@@ -725,13 +790,17 @@ def send_error_alert(title, message, is_recovery=False):
         }
         response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
         return response.status_code == 204
-    except:
+    except Exception as e:
+        logger.error(f"Failed to send error alert: {e}")
         return False
 
 def send_daily_summary(summary):
-    """Send daily summary"""
+    """Send daily summary to Discord"""
+    WEBHOOK_URL = get_webhook_url()
+    
     if not WEBHOOK_URL:
         return False
+        
     try:
         fields = [
             {"name": "Total", "value": str(summary['total_alerts']), "inline": True},
@@ -749,33 +818,46 @@ def send_daily_summary(summary):
         }
         response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
         return response.status_code == 204
-    except:
+    except Exception as e:
+        logger.error(f"Failed to send daily summary: {e}")
         return False
 
 def send_test_alert():
-    """Test alert"""
+    """Send test alert to Discord"""
+    WEBHOOK_URL = get_webhook_url()
+    
     if not WEBHOOK_URL:
+        logger.error("Webhook URL not found!")
         return False
+        
     try:
         embed = {
             "title": "✅ TEST ALERT",
-            "description": "Bot installation successful!\n\nTwelve Data API connected and ready.",
+            "description": "Bot installation successful!\n\nReal-time forming candle detection active.\nLogic: Sekolah Trading Momentum V3",
             "color": 65280,
             "fields": [
-                {"name": "Data Source", "value": "Twelve Data API", "inline": True},
+                {"name": "Data Source", "value": "Twelve Data /quote", "inline": True},
                 {"name": "Status", "value": "● Running", "inline": True}
             ],
             "timestamp": datetime.utcnow().isoformat()
         }
         response = requests.post(WEBHOOK_URL, json={"username": "XAUUSD Bot", "embeds": [embed]}, timeout=10)
-        return response.status_code == 204
-    except:
+        
+        if response.status_code == 204:
+            logger.info("✓ Test alert sent successfully")
+            return True
+        else:
+            logger.error(f"Test alert failed: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Test alert exception: {e}")
         return False
 DISCORDEOF
 
-    # Stats
+    # Stats tracker
     cat > "$INSTALL_DIR/utils/stats.py" << 'STATSEOF'
-"""Statistics tracker"""
+"""Statistics tracker for momentum alerts"""
 from datetime import datetime, timezone
 
 class StatsTracker:
@@ -894,10 +976,12 @@ show_statistics() {
         total=$(grep -c "MOMENTUM" "$LOG_DIR/bot.log" 2>/dev/null || echo "0")
         echo "Total Alerts: $total"
         echo ""
+        echo "Recent alerts:"
         grep "MOMENTUM" "$LOG_DIR/bot.log" | tail -10
     else
-        echo "No stats"
+        echo "No statistics available"
     fi
+    echo ""
     echo -n "Press Enter..."
     read -r
 }
@@ -905,42 +989,43 @@ show_statistics() {
 settings_menu() {
     while true; do
         print_banner
-        echo -e "${BOLD}SETTINGS${NC}"
+        echo -e "${BOLD}SETTINGS & CONFIGURATION${NC}"
         echo ""
-        echo "[1] Change M5 pips"
-        echo "[2] Change M15 pips"
-        echo "[3] Update webhook"
-        echo "[4] Update API key"
-        echo "[0] Back"
+        echo "[1] Change M5 pips threshold"
+        echo "[2] Change M15 pips threshold"
+        echo "[3] Update Discord webhook"
+        echo "[4] Update Twelve Data API key"
+        echo "[0] Back to main menu"
+        echo ""
         echo -n "Choice: "
         read -r choice
         case $choice in
             1)
-                echo -n "New M5 pips: "
+                echo -n "New M5 pips threshold: "
                 read -r new_m5
                 sed -i "s/MOMENTUM_PIPS_M5 = [0-9]*/MOMENTUM_PIPS_M5 = $new_m5/" "$INSTALL_DIR/config.py"
-                echo "Updated. Restart bot."
+                echo -e "${GREEN}✓ Updated. Restart bot to apply.${NC}"
                 sleep 2
                 ;;
             2)
-                echo -n "New M15 pips: "
+                echo -n "New M15 pips threshold: "
                 read -r new_m15
                 sed -i "s/MOMENTUM_PIPS_M15 = [0-9]*/MOMENTUM_PIPS_M15 = $new_m15/" "$INSTALL_DIR/config.py"
-                echo "Updated. Restart bot."
+                echo -e "${GREEN}✓ Updated. Restart bot to apply.${NC}"
                 sleep 2
                 ;;
             3)
-                echo -n "New webhook: "
+                echo -n "New Discord webhook URL: "
                 read -r new_hook
                 sed -i "s|DISCORD_WEBHOOK_URL=.*|DISCORD_WEBHOOK_URL=$new_hook|" "$INSTALL_DIR/.env"
-                echo "Updated."
+                echo -e "${GREEN}✓ Updated.${NC}"
                 sleep 2
                 ;;
             4)
                 echo -n "New Twelve Data API key: "
                 read -r new_key
                 sed -i "s|TWELVEDATA_API_KEY=.*|TWELVEDATA_API_KEY=$new_key|" "$INSTALL_DIR/.env"
-                echo "Updated. Restart bot."
+                echo -e "${GREEN}✓ Updated. Restart bot to apply.${NC}"
                 sleep 2
                 ;;
             0) break ;;
@@ -949,33 +1034,50 @@ settings_menu() {
 }
 
 test_discord_webhook() {
+    cd /opt/xauusd-bot
     python3 << PYEOF
 import sys
-sys.path.insert(0, '$INSTALL_DIR/utils')
+import os
+sys.path.insert(0, '/opt/xauusd-bot/utils')
+os.chdir('/opt/xauusd-bot')
+from dotenv import load_dotenv
+load_dotenv('/opt/xauusd-bot/.env')
 from discord_handler import send_test_alert
 if send_test_alert():
     print("✓ Test alert sent!")
 else:
-    print("✗ Failed")
+    print("✗ Failed to send test alert")
 PYEOF
 }
 
 uninstall_bot() {
     print_banner
-    echo -e "${RED}UNINSTALL${NC}"
-    echo -n "Type UNINSTALL to confirm: "
+    echo -e "${RED}╔═══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║ ⚠️  UNINSTALL BOT                                        ║${NC}"
+    echo -e "${RED}╚═══════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}This will remove:${NC}"
+    echo "  - Bot service"
+    echo "  - All bot files in $INSTALL_DIR"
+    echo "  - Configuration and logs"
+    echo ""
+    echo -n "Type ${BOLD}UNINSTALL${NC} to confirm: "
     read -r confirm
     if [ "$confirm" = "UNINSTALL" ]; then
+        echo ""
+        echo "Uninstalling..."
         systemctl stop xauusd-bot 2>/dev/null || true
         systemctl disable xauusd-bot 2>/dev/null || true
         rm -f "$SERVICE_FILE"
         rm -rf "$INSTALL_DIR"
         systemctl daemon-reload
-        echo -e "${GREEN}✓ Uninstalled${NC}"
+        echo -e "${GREEN}✓ Bot uninstalled successfully${NC}"
+    else
+        echo -e "${YELLOW}Uninstall cancelled${NC}"
     fi
+    echo ""
     echo -n "Press Enter..."
     read -r
-    exit 0
 }
 
 main() {
@@ -993,7 +1095,8 @@ main() {
             7) settings_menu ;;
             8) test_discord_webhook; echo ""; echo -n "Press Enter..."; read -r ;;
             9) uninstall_bot ;;
-            0) exit 0 ;;
+            0) clear; echo "Goodbye!"; exit 0 ;;
+            *) echo "Invalid choice"; sleep 1 ;;
         esac
     done
 }
