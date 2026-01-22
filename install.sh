@@ -322,7 +322,7 @@ install_bot() {
 
     # [5/10] Install ZeroMQ
     progress 5 "Installing ZeroMQ for MT5"
-    install_zeromq_manual
+    install_zeromq_auto
     success "ZeroMQ installed"
 
     # [6/10] Install Python packages
@@ -370,6 +370,7 @@ install_bot() {
     echo "4. Open MetaEditor (F4), compile XAUUSD_ZMQ_Server.mq5"
     echo ""
     echo "5. Attach EA to XAUUSD chart (any timeframe)"
+    echo "   - Set 'InpBrokerUTCOffset' parameter (e.g., +2 for EET, -5 for EST)"
     echo ""
     echo "6. Enable AutoTrading (Ctrl+E)"
     echo ""
@@ -384,51 +385,81 @@ install_bot() {
     read -p "Press Enter to return to menu..."
 }
 
-install_zeromq_manual() {
+install_zeromq_auto() {
     echo ""
-    echo -e "${YELLOW}Step 5a: Installing ZeroMQ for MT5${NC}"
-    echo "Please download ZeroMQ files manually:"
-    echo "1. Go to: https://github.com/dingmaotu/mql-zmq"
-    echo "2. Download the latest release (mql-zmq-*.zip)"
-    echo "3. Extract the ZIP file"
-    echo "4. Copy these files:"
-    echo ""
+    echo -e "${CYAN}[5/10] Installing ZeroMQ for MT5 (AUTO-DOWNLOAD)${NC}"
     
     MT5_LIB_DIR="$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Libraries"
     MT5_INC_DIR="$HOME/.wine/drive_c/Program Files/MetaTrader 5/MQL5/Include/Zmq"
     
     mkdir -p "$MT5_LIB_DIR" "$MT5_INC_DIR"
     
-    echo "Required files:"
-    echo "  • libzmq.dll → $MT5_LIB_DIR/"
-    echo "  • Zmq.mqh files → $MT5_INC_DIR/"
-    echo ""
-    
-    # Check if files already exist
+    # Check if already installed
     if [[ -f "$MT5_LIB_DIR/libzmq.dll" ]] && [[ -f "$MT5_INC_DIR/Zmq.mqh" ]]; then
-        echo -e "${GREEN}✓ ZeroMQ files already exist${NC}"
+        echo -e "${GREEN}✓ ZeroMQ already installed${NC}"
         return 0
     fi
     
-    echo -e "${YELLOW}If you have the files in /tmp, press Enter to attempt auto-copy...${NC}"
-    read -p ""
+    cd /tmp || return 1
     
-    # Try to find and copy files
-    find /tmp -name "libzmq.dll" -type f 2>/dev/null | head -1 | xargs -I {} cp {} "$MT5_LIB_DIR/" 2>/dev/null || true
-    find /tmp -name "*.mqh" -type f 2>/dev/null | head -5 | xargs -I {} cp {} "$MT5_INC_DIR/" 2>/dev/null || true
+    # Download from GitHub
+    ZMQ_VERSION="4.3.4"
+    ZMQ_URL="https://github.com/dingmaotu/mql-zmq/releases/download/v${ZMQ_VERSION}/mql-zmq-${ZMQ_VERSION}-x64.zip"
     
-    if [[ -f "$MT5_LIB_DIR/libzmq.dll" ]]; then
-        echo -e "${GREEN}✓ libzmq.dll installed${NC}"
+    echo -n "  Downloading ZeroMQ ${ZMQ_VERSION}... "
+    if wget -q "$ZMQ_URL" -O mql-zmq.zip 2>/dev/null; then
+        echo -e "${GREEN}OK${NC}"
+    elif curl -sL "$ZMQ_URL" -o mql-zmq.zip 2>/dev/null; then
+        echo -e "${GREEN}OK${NC}"
     else
-        echo -e "${RED}✗ libzmq.dll not found${NC}"
-        echo "Please copy manually after installation"
+        echo -e "${RED}FAILED${NC}"
+        error "Could not download ZeroMQ. Check internet connection."
+        return 1
     fi
     
-    if [[ -f "$MT5_INC_DIR/Zmq.mqh" ]]; then
-        echo -e "${GREEN}✓ Zmq.mqh installed${NC}"
+    # Extract
+    echo -n "  Extracting... "
+    if unzip -q -o mql-zmq.zip 2>/dev/null; then
+        echo -e "${GREEN}OK${NC}"
     else
-        echo -e "${RED}✗ Zmq.mqh not found${NC}"
-        echo "Please copy manually after installation"
+        echo -e "${RED}FAILED${NC}"
+        error "Could not extract ZeroMQ archive"
+        return 1
+    fi
+    
+    # Copy DLL (64-bit)
+    echo -n "  Installing libzmq.dll... "
+    if [[ -f "Library/MT5/x64/libzmq.dll" ]]; then
+        cp "Library/MT5/x64/libzmq.dll" "$MT5_LIB_DIR/" && echo -e "${GREEN}OK${NC}" || { echo -e "${RED}FAILED${NC}"; return 1; }
+    elif [[ -f "libzmq.dll" ]]; then
+        cp "libzmq.dll" "$MT5_LIB_DIR/" && echo -e "${GREEN}OK${NC}" || { echo -e "${RED}FAILED${NC}"; return 1; }
+    else
+        echo -e "${RED}NOT FOUND${NC}"
+        error "libzmq.dll not found in archive"
+        return 1
+    fi
+    
+    # Copy MQH includes
+    echo -n "  Installing Zmq.mqh headers... "
+    if [[ -d "Include/Mql" ]]; then
+        cp Include/Mql/*.mqh "$MT5_INC_DIR/" 2>/dev/null && echo -e "${GREEN}OK${NC}" || { echo -e "${RED}FAILED${NC}"; return 1; }
+    elif [[ -d "Include" ]]; then
+        cp Include/*.mqh "$MT5_INC_DIR/" 2>/dev/null && echo -e "${GREEN}OK${NC}" || { echo -e "${RED}FAILED${NC}"; return 1; }
+    else
+        echo -e "${RED}NOT FOUND${NC}"
+        error "Zmq.mqh not found in archive"
+        return 1
+    fi
+    
+    # Verify installation
+    if [[ -f "$MT5_LIB_DIR/libzmq.dll" ]] && [[ -f "$MT5_INC_DIR/Zmq.mqh" ]]; then
+        rm -f mql-zmq.zip  # Cleanup
+        echo -e "${GREEN}✓ ZeroMQ installation verified${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ Installation verification failed${NC}"
+        error "ZeroMQ files not found after installation"
+        return 1
     fi
 }
 
@@ -498,7 +529,7 @@ ERROR_LOG_FILE = "$LOG_DIR/error.log"
 ZMQ_ENDPOINT = "tcp://localhost:5555"
 EOF
 
-    # Create bot.py
+    # Create bot.py (FIXED VERSION)
     cat > "$INSTALL_DIR/bot.py" << 'EOF'
 #!/usr/bin/env python3
 """
@@ -676,22 +707,23 @@ def process_zmq_message(message):
             return
         
         # Parse message
-        # Format: CANDLE|M5|timestamp|open|high|low|close|PREV|prev_open|prev_high|prev_low|prev_close
+        # Format: CANDLE|M5|broker_time|utc_time|open|high|low|close|PREV|prev_open|prev_high|prev_low|prev_close
         timeframe = parts[1]
         
         current_candle = {
-            'time': int(parts[2]),
-            'open': float(parts[3]),
-            'high': float(parts[4]),
-            'low': float(parts[5]),
-            'close': float(parts[6])
+            'time': int(parts[3]),        # Use UTC time (not broker time)
+            'broker_time': int(parts[2]), # Keep broker time for reference
+            'open': float(parts[4]),
+            'high': float(parts[5]),
+            'low': float(parts[6]),
+            'close': float(parts[7])
         }
         
         previous_candle = {
-            'open': float(parts[8]),
-            'high': float(parts[9]),
-            'low': float(parts[10]),
-            'close': float(parts[11])
+            'open': float(parts[9]),
+            'high': float(parts[10]),
+            'low': float(parts[11]),
+            'close': float(parts[12])
         }
         
         # Check momentum
@@ -713,7 +745,44 @@ def main():
     socket.connect(config.ZMQ_ENDPOINT)
     socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Subscribe to all messages
     
-    logger.info(f"✓ Connected to ZeroMQ: {config.ZMQ_ENDPOINT}")
+    logger.info(f"Connecting to ZeroMQ: {config.ZMQ_ENDPOINT}")
+    
+    # CRITICAL: Verify connection by waiting for first message
+    logger.info("Verifying ZeroMQ connection (10 second timeout)...")
+    socket.setsockopt(zmq.RCVTIMEO, 10000)  # 10 second timeout
+    
+    try:
+        test_message = socket.recv_string()
+        logger.info(f"✓ ZeroMQ connection verified!")
+        logger.info(f"✓ First message received: {test_message[:60]}...")
+        socket.setsockopt(zmq.RCVTIMEO, -1)  # Remove timeout for normal operation
+    except zmq.Again:
+        logger.error("✗ NO DATA from ZeroMQ after 10 seconds!")
+        logger.error("")
+        logger.error("TROUBLESHOOTING:")
+        logger.error("  1. Is MT5 terminal running?")
+        logger.error("     Check: ps aux | grep terminal64")
+        logger.error("  2. Is EA attached to XAUUSD chart?")
+        logger.error("     Look for smiley face icon on chart")
+        logger.error("  3. Is EA running without errors?")
+        logger.error("     Check MT5 Experts tab for messages")
+        logger.error("  4. Is ZeroMQ port 5555 open?")
+        logger.error("     Check: netstat -tuln | grep 5555")
+        logger.error("")
+        if config.ENABLE_ERROR_ALERTS:
+            send_error_alert("ZeroMQ Connection Failed", 
+                            "No data received. Check MT5 EA is running and attached to chart.")
+        socket.close()
+        context.term()
+        return
+    except Exception as e:
+        logger.error(f"✗ Connection test failed: {e}")
+        socket.close()
+        context.term()
+        return
+    
+    logger.info("✓ Connection test passed - starting monitoring...")
+    
     logger.info(f"Symbol: {config.SYMBOL}")
     logger.info(f"Timeframes: M5, M15")
     logger.info(f"M5: {config.MOMENTUM_PIPS_M5} pips, M15: {config.MOMENTUM_PIPS_M15} pips")
@@ -901,7 +970,7 @@ EOF
     # __init__.py
     touch "$UTILS_DIR/__init__.py"
 
-    # Create MT5 EA
+    # Create MT5 EA (FIXED VERSION with timezone sync)
     cat > "$INSTALL_DIR/XAUUSD_ZMQ_Server.mq5" << 'EOF'
 //+------------------------------------------------------------------+
 //|                                    XAUUSD_ZMQ_Server.mq5         |
@@ -917,6 +986,7 @@ EOF
 // Inputs
 input string InpSymbol = "XAUUSD";      // Symbol to monitor
 input string InpPort = "5555";          // ZeroMQ Port
+input int InpBrokerUTCOffset = 0;       // Broker timezone offset from UTC (hours, e.g., +2, -5)
 
 // ZeroMQ objects
 Context context("xauusd_zmq");
@@ -944,6 +1014,7 @@ int OnInit()
     Print("✓ Endpoint: ", endpoint);
     Print("✓ Monitoring: ", InpSymbol);
     Print("✓ Timeframes: M5, M15");
+    Print("✓ Broker UTC Offset: ", InpBrokerUTCOffset, " hours");
     
     return INIT_SUCCEEDED;
 }
@@ -984,10 +1055,14 @@ void SendCandleData(ENUM_TIMEFRAMES timeframe, string tfString)
     // Current forming candle [0]
     // Previous completed candle [1]
     
-    // Format: CANDLE|M5|timestamp|open|high|low|close|PREV|prev_open|prev_high|prev_low|prev_close
-    string message = StringFormat("CANDLE|%s|%d|%.5f|%.5f|%.5f|%.5f|PREV|%.5f|%.5f|%.5f|%.5f",
+    // Calculate UTC time from broker time
+    datetime utc_time = rates[0].time - (InpBrokerUTCOffset * 3600);
+
+    // Format: CANDLE|M5|broker_time|utc_time|open|high|low|close|PREV|prev_open|prev_high|prev_low|prev_close
+    string message = StringFormat("CANDLE|%s|%d|%d|%.5f|%.5f|%.5f|%.5f|PREV|%.5f|%.5f|%.5f|%.5f",
         tfString,
-        (int)rates[0].time,
+        (int)rates[0].time,      // Broker time
+        (int)utc_time,           // UTC time
         rates[0].open,
         rates[0].high,
         rates[0].low,
